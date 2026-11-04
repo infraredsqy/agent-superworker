@@ -34,17 +34,21 @@ conductor keeps the same rule.
 Once created, a node is consumed by the **pf-conduct** pipeline: one cycle takes one node at a
 time, from prepare through execution, review and close.
 
-So every node has three things settled the moment it is built:
+So every node has five things settled the moment it is built:
 
-- **A clear intent**: "what it does" is one framework-level description — settle the billing UI,
-  add a chart-schema module, write the copy for a prop. Function names, file paths, line counts
-  and implementation steps never go into the spec: the executing side has the spec read-only, it
-  is both the ground for doing the work and the criterion for the review, and implementation
-  detail written into it pins the spec down, dates it and tampers with the criterion
+- **A clear intent**: write what it does, and write where the change actually lands. Name the
+  landing place in the project's own vocabulary, and say what this pass includes and what it
+  leaves out. Function names, file paths, line counts, call order and implementation steps never
+  go into the spec: the executing side has the spec read-only, it is both the ground for doing
+  the work and the criterion for the review, and implementation detail written into it dates it
+  and tampers with the criterion
+- **A single scope**: the landing place the spec names has exactly one referent in the project.
+  When the wording carries more than one referent, the spec says which one; if that cannot be
+  said, do not write the node down yet
 - **A size that fits**: "if I did this node myself, would one execute-review-fix loop fit in a
   single session" — the prepare and review effort counts inside the line, so what does not fit
-  should be split. If it does not fit, split it into two nodes right here; one "yes" is a node
-  that fits. When it is too small to be worth dispatching an executor for (one file, a few dozen
+  should be split. If it does not fit, split it into two nodes right here; fitting one round is a
+  node that fits. When it is too small to be worth dispatching an executor for (one file, a few dozen
   lines, judged by one or two commands), mark it `light`: it still enters the graph and queues
   (order and dependencies still count), and only the execute step is done by the conductor itself
   (see "Look at the weight first" in [`../pf-conduct/SKILL.md`](../pf-conduct/SKILL.md)). A node
@@ -56,6 +60,11 @@ So every node has three things settled the moment it is built:
   pass / fail reading (the criterion need not be a test: the `minimal` tier's completion rule is
   the few checks that project names). Words like "design it a bit" or "tune it", which cannot be
   judged, make downstream stop and ask you to fill them in
+- **The register**: write it as a professional specification, not as prose.
+
+The length follows the points above and is not a target of its own: if the executing side cannot
+read where the change lands, the spec is not written yet; if it can read implementation detail,
+the spec is written too much.
 
 Layering by data → API → UI is sound practice; there are two hard constraints only: every node has
 a verification boundary of its own, so it can be independently confirmed right once done; and the
@@ -252,9 +261,10 @@ conclusion.
 work with a light verification is marked `light`; the rest goes as `standard`.
 
 **Three: whether the spec passes the executing side's gate.** Only work entering the graph has to
-pass this gate: a node landing in the pipeline has to satisfy those three from "Nodes and
-downstream" — one framework-level description, a size one session can carry, and one executable
-completion rule. When any one of them is not satisfied, change the node or split it first, and
+pass this gate: a node landing in the pipeline has to satisfy those from "Nodes and
+downstream" — a scope written with a single referent, a size one session can carry, and one
+executable completion rule. When any one of them is not satisfied, change the node or split it
+first, and
 write it down only after the user nods.
 
 **Four: whose run this work's running is.** To clear debt (a batch of entries some record holds), **do
@@ -302,8 +312,9 @@ carries the judgements and the conventions only.
 3. Edges: first sweep for who should depend on it, connecting both up- and downstream, then check
    the full up- and downstream once; an empty downstream is an orphan, so go back and fill it in
 4. Writing it down: the tool prints the spec path for you, and that file does not exist yet —
-   write it directly, do not read it first. Check yourself once: the goal in one sentence, the
-   size in one "yes", a completion rule in one section (an executable command / script / probe);
+   write it directly, do not read it first. Check yourself once: a scope written with a single
+   referent, a size one round can carry, a completion rule in one section (an executable command
+   / script / probe);
    the debt-clearing kind adds one `method: ` line (the name comes from `pf doctor`) and its
    scope; anything with
    function names, file paths or line counts written in gets deleted

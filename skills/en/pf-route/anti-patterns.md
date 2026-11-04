@@ -72,6 +72,25 @@ fine"
 **Correction signal**: pf-conduct's prepare stops and says "the completion rule cannot be run" or
 "the spec and the code's premise do not hold"
 
+## `route-spec-scope-unpinned` — the spec does not pin its scope
+
+**Symptom**: the spec says only what it does, not where the change actually lands; or it says it,
+and that wording carries more than one referent in the project
+
+**Correction signal**: ask the spec "where does this change land", and the answer comes back with
+more than one place
+
+**Instance**:
+
+    this command's output is a mess, tidy it up, and mind you do not break anything else.
+
+That reads neither where it lands nor what would count as done. The specification form:
+
+    Goal: align the column widths of this command's three-column output.
+    Scope: this command's own entry point, not its downstream subcommands.
+    Criterion: run it once, all three columns align on the longest entry; argument parsing and
+    exit codes unchanged.
+
 ## `route-lowers-parallel-instead-of-adding-edges` — lowering parallel instead of adding edges
 
 **Symptom**: on finding that two nodes (or three) would change the same batch of files, the agent

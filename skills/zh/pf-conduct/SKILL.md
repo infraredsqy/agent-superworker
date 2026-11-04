@@ -101,7 +101,7 @@ tag 说清一个节点属于哪条线：`writing`（文案）、`coding`（代�
 
 ## 东西住哪一层
 
-- **工作区**：依赖图与它上面的维护节点判定、代码的合流（每个节点的 worktree 与合回）、状态文件的写互斥——这些由工具管，你照本子里那几条命令走就行，不用为并发加任何东西
+- **工作区**：依赖图与它上面的维护节点判定、状态文件的写互斥——这些由工具管，你照本子里那几条命令走就行，不用为并发加任何东西。**代码的合流不归它**：每个节点的 worktree 与合回这几步你自己敲，工具只管记录与命名（见「并行：worktree」）
 - **线（cycle）**：`tags`（挑谁）、`when_shelved`、`parallel`（同时握几个节点、开几个会话）、两条维护阈值；写它们用 `cycle policy`，读它们用 `cycle current` 的 `Policy:` 行。线之间没有别的耦合：两条线并排跑，各自握各自的那几个节点
 - **节点**：mode、weight、tags、spec、报告集、FORK 记录——随图与节点目录走，一个节点一处
 
@@ -363,13 +363,45 @@ pf next --spawn --json
 | `fork`（缺省） | 每个节点一个新 worktree，收尾合回后删干净——本节以下写的都是这一档 |
 | `reuse` | 工具未支持：读到这一档停下来交用户——改档，或先给工具补池子。不许自己 `git worktree add` 凑数：认 FORK 记录的那道收尾检查过不去 |
 
-**开工前，准备的最后一步 fork**：
+**开工前，准备的最后一步 fork**——两道检查你自己看一眼，过了自己敲 git 建工作树与分支；工具只认 `.pf/meta/` 里那条 FORK 记录，这活它不代你干：
 
 ```pwsh
-pf fork-worktree <节点id>
+# 1. 主树干净吗：只算已跟踪的改动，未跟踪的排场不算
+git status --porcelain --untracked-files=no
+# 2. 检出目录被占了没有
+Test-Path .pf/worktrees/<节点短id>
+# 3. 出口分支被占了没有
+git rev-parse --verify --quiet refs/heads/pf/<节点短id>
+# 4. 前三道都过，才建工作树与分支
+git worktree add .pf/worktrees/<节点短id> -b pf/<节点短id>
 ```
 
-主树不干净（上一个节点没收干净，或别的线正在收尾中段）或短 id 已被占时它直接拒绝；过了才 `git worktree add .pf/worktrees/<节点短id> -b pf/<节点短id>`，并把出口分支与 fork 时的 HEAD 写进 `.pf/meta/FORK-<节点短id>.json`。被拒就等几分钟重跑这条命令，**不要绕过它手敲 git**——那两道检查就是为手滑准备的。**出口分支 = fork 时主树所在的分支**，已在 FORK 记录里（`run.md` 的「已核事实」也照记一份）——合回哪条，照记录走。
+- **主树不干净**（第 1 条有输出）：别的线可能正在合回中段（文档同步与记录那次提交留下一段几分钟的脏窗口），也可能是上一个节点没收干净。停手，把这句话讲出来，等几分钟重看一眼 `git status` 再 fork：
+
+  > the main tree has uncommitted tracked changes -- another line may be mid-merge-back (the docs sync and the ledger commit leave a dirty window of minutes). Wait a few minutes and re-check `git status` before forking:
+
+- **短 id 已被占**（第 2 条 `Test-Path` 为真，或第 3 条 `rev-parse` 有输出）：占它的可能是这个节点自己，也可能是上一次 fork 没清干净。什么都不建、停手交人；占的是哪一处就说哪一句，一字不改：
+
+  > .pf/worktrees/<节点短id> already exists -- the short id '<节点短id>' is taken (by node <节点id> itself, or the last fork was never cleaned up). Nothing was forked.
+  >
+  > branch pf/<节点短id> already exists -- the short id '<节点短id>' is taken. Nothing was forked.
+
+**这两道检查就是为手滑准备的，别凭「我知道主树是干净的」跳过去**；被拒就照上面停下，不许硬 fork。
+
+建好工作树，再自己把 FORK 记录写下来（`at` 与参考实现同一个形状：UTC、秒、字面 `Z`）：
+
+```pwsh
+$rec = [ordered]@{
+  node   = '<节点id>'
+  branch = (git rev-parse --abbrev-ref HEAD)   # 出口分支 = fork 时主树所在的分支
+  head   = (git rev-parse HEAD)                # fork 时的 HEAD
+  at     = '{0:yyyy-MM-ddTHH:mm:ss}Z' -f [DateTime]::UtcNow
+}
+New-Item -ItemType Directory -Force -Path .pf/meta | Out-Null
+$rec | ConvertTo-Json | Set-Content -Encoding utf8 .pf/meta/FORK-<节点短id>.json
+```
+
+**出口分支 = fork 时主树所在的分支**，它就是 FORK 记录里的 `branch`（`run.md` 的「已核事实」也照记一份）——合回哪条，照记录走。
 
 干活：
 
@@ -379,10 +411,10 @@ pf fork-worktree <节点id>
 - 两份 spec 的文件范围重叠不拦：各做各的，先后由谁先 merge 决定，撞车在合回那一步解（改同一批文件的节点该由 pf-route 拉出先后边，那是它的债）
 - 多线在主树上的 git 写操作（合回、提交、push）撞出 `index.lock` 是瞬时撞锁：等几秒重跑同一条命令即可，两三次仍不解放就停手交用户；**锁文件是活进程的，不许删**
 
-**合回**（收尾的第 3 步：Doc-sync 已经落好、`run.md` 也写完了，这一步把整个节点提成一次提交、带回主树，排在全量之前）：
+**合回**（收尾的第 3 步：Doc-sync 已经落好、`run.md` 也写完了，这一步把整个节点提成一次提交、带回主树，排在全量之前）——**三步都在主树上跑**，`-C` 指到 worktree，其余不用挪窝：
 
-1. worktree 里把这个节点提成一次提交（代码、文档，提交档还有 run.md 与报告集），再把主树的最新合进来：`git -C <worktree> merge <出口分支>`——撞车在 worktree 里解，解完重跑快档
-2. 主树上 `git merge --squash pf/<节点短id>`，发这个节点的 `feat:` commit：一个节点在主树上就是一次提交，历史形状不变
+1. worktree 里把这个节点提成一次提交（代码、文档，提交档还有 run.md 与报告集）：`git -C .pf/worktrees/<节点短id> add -A` 与 `git -C .pf/worktrees/<节点短id> commit -m "feat: <这个节点做了什么>"`，再把主树的最新合进来：`git -C .pf/worktrees/<节点短id> merge <出口分支>`——撞车在 worktree 里解，解完重跑快档
+2. 主树上 `git merge --squash pf/<节点短id>`，再 `git commit -m "feat: <同上那一行>"` 发这个节点的 `feat:` commit：一个节点在主树上就是一次提交，历史形状不变
 3. 全量在主树上跑（对的就是合并后的内容），过了就 `git worktree remove .pf/worktrees/<节点短id>` 与 `git branch -D pf/<节点短id>`，再接着 handoff → 提交记录 → push → 派发。worktree 与分支没删干净时，`next --after` 会拒绝结算这个节点（它认 FORK 记录）——被拒就回头把本步清完再来
 
 主树不在出口分支上、或 squash 仍撞（别的线在你刷新之后又合了一次提交）：停手交用户。

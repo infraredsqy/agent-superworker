@@ -160,10 +160,11 @@ never changes them.
 
 ## What lives on which layer
 
-- **The workspace**: the dependency graph and the judgement that inserts debt nodes on it, how code
-  converges (each node's worktree and merge-back), and write exclusion on the state files — the
-  tool owns all of it; you just follow the few commands in this book, and add nothing for
-  concurrency
+- **The workspace**: the dependency graph and the judgement that inserts debt nodes on it, and write
+  exclusion on the state files — the tool owns both; you just follow the few commands in this book,
+  and add nothing for concurrency. **How code converges is not its business**: the steps that make
+  each node's worktree and merge it back are yours to type yourself, and the tool owns only the
+  record and the naming (see "Parallel: worktree")
 - **The line (cycle)**: `tags` (who it picks), `when_shelved`, `parallel` (how many nodes it
   holds and how many sessions it opens), and the two debt thresholds; write them with
   `cycle policy`, read them from the `Policy:` line of `cycle current`. Lines are coupled in no
@@ -667,20 +668,56 @@ mode's design, see `docs/conduct-state.md` "the two ways in"; to change it,
 | `fork` (the default) | a fresh worktree per node, deleted clean once the close's merge-back is done — everything below this line is this mode |
 | `reuse` | not supported by the tool: on reading this mode, stop and hand it to the user — change the mode, or have the tool grow a standing set of worktrees first. Do not patch it up with your own `git worktree add`: the close's check, which reads the FORK record, will not pass |
 
-**Before work starts, prepare's last step is the fork**:
+**Before work starts, prepare's last step is the fork** — you read the two checks yourself, and once
+they pass you type the git that makes the worktree and the branch; the tool knows only the FORK
+record under `.pf/meta/`, and it does not do this work for you:
 
 ```pwsh
-pf fork-worktree <node id>
+# 1. is the main tree clean: tracked changes only, untracked plumbing does not count
+git status --porcelain --untracked-files=no
+# 2. is the checkout directory taken
+Test-Path .pf/worktrees/<node short id>
+# 3. is the exit branch taken
+git rev-parse --verify --quiet refs/heads/pf/<node short id>
+# 4. only when the first three pass, build the worktree and the branch
+git worktree add .pf/worktrees/<node short id> -b pf/<node short id>
 ```
 
-It refuses outright when the main tree is not clean (the previous node was not closed cleanly, or
-another line is mid-close) or the short id is already taken; only when it passes does it
-`git worktree add .pf/worktrees/<node short id> -b pf/<node short id>`, and write the exit
-branch and the fork-time HEAD into `.pf/meta/FORK-<node short id>.json`. When refused, wait a
-few minutes and re-run this command, and **do not bypass it and type git by hand** — those two
-checks exist for the fat-fingered case. **The exit branch = the branch the main tree was on at
-fork time**, already in the FORK record (and recorded again under `run.md`'s "Facts checked") —
-which branch to merge back into follows the record.
+- **The main tree is not clean** (the first one prints something): another line may be mid-merge-back
+  (the docs sync and the ledger commit leave a dirty window of minutes), or the previous node was not
+  closed cleanly. Stop, say this sentence out, and wait a few minutes before looking at `git status`
+  again and forking:
+
+  > the main tree has uncommitted tracked changes -- another line may be mid-merge-back (the docs sync and the ledger commit leave a dirty window of minutes). Wait a few minutes and re-check `git status` before forking:
+
+- **The short id is already taken** (check 2's `Test-Path` is true, or check 3's `rev-parse`
+  prints something): the taker may be this node itself, or the last fork was never cleaned up. Build
+  nothing; stop and hand it to the user, saying whichever of the two holds, word for word:
+
+  > .pf/worktrees/<node short id> already exists -- the short id '<node short id>' is taken (by node <node id> itself, or the last fork was never cleaned up). Nothing was forked.
+  >
+  > branch pf/<node short id> already exists -- the short id '<node short id>' is taken. Nothing was forked.
+
+**Those two checks exist for the fat-fingered case — do not skip them on "I know the main tree is
+clean"**; when refused, stop as above and never fork anyway.
+
+Once the worktree is made, write the FORK record down yourself (`at` in the same shape as the
+reference: UTC, seconds, a literal `Z`):
+
+```pwsh
+$rec = [ordered]@{
+  node   = '<node id>'
+  branch = (git rev-parse --abbrev-ref HEAD)   # exit branch = the branch the main tree was on at fork time
+  head   = (git rev-parse HEAD)                # HEAD at fork time
+  at     = '{0:yyyy-MM-ddTHH:mm:ss}Z' -f [DateTime]::UtcNow
+}
+New-Item -ItemType Directory -Force -Path .pf/meta | Out-Null
+$rec | ConvertTo-Json | Set-Content -Encoding utf8 .pf/meta/FORK-<node short id>.json
+```
+
+**The exit branch = the branch the main tree was on at fork time**; it is the `branch` in the FORK
+record (and recorded again under `run.md`'s "Facts checked") — which branch to merge back into
+follows the record.
 
 The work:
 
@@ -707,13 +744,17 @@ The work:
   belongs to a live process and must not be deleted**
 
 **Merge back** (the close's step 3: Doc-sync has landed and `run.md` is written, and this step
-commits the whole node once and brings it back to the main tree, before the full run):
+commits the whole node once and brings it back to the main tree, before the full run) — **all three
+steps run on the main tree**, `-C` points at the worktree, and nothing needs moving:
 
 1. commit this node once inside the worktree (code, docs, and for the commit flavour run.md and
-   the report set), then merge the main tree's latest in: `git -C <worktree> merge <exit branch>`
-   — a collision is resolved inside the worktree, and the fast lane re-runs once it is resolved
-2. on the main tree, `git merge --squash pf/<node short id>` and make this node's `feat:` commit:
-   one node is one commit on the main tree, and the shape of history does not change
+   the report set) with `git -C .pf/worktrees/<node short id> add -A` and
+   `git -C .pf/worktrees/<node short id> commit -m "feat: <what this node did>"`, then merge the
+   main tree's latest in: `git -C .pf/worktrees/<node short id> merge <exit branch>` — a collision
+   is resolved inside the worktree, and the fast lane re-runs once it is resolved
+2. on the main tree, `git merge --squash pf/<node short id>`, then
+   `git commit -m "feat: <that same line>"` makes this node's `feat:` commit: one node is one commit
+   on the main tree, and the shape of history does not change
 3. the full run runs on the main tree (so it is the merged content that gets verified), and once
    it passes, `git worktree remove .pf/worktrees/<node short id>` and
    `git branch -D pf/<node short id>`, then on to handoff → commit the record → push → dispatch.

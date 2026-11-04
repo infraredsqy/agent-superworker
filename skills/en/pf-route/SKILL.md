@@ -10,8 +10,7 @@ disable-model-invocation: true
 > What I am for: talk a request into one node, change the graph as asked, query the graph
 > Do I dispatch subagents: yes, one layer (reading code, running probes, following docs); an executor reading this stops and reports
 
-Talk a request into one node of the DAG, or change and query the graph at the user's asking. It
-shows up in front of the user only, and no pipeline dispatches it.
+Talk a request into one node of the DAG, or change and query the graph at the user's asking.
 
 ## The role
 
@@ -24,7 +23,7 @@ and leave the implementation detail to downstream.
   connect and cut edges, change the execution mode
 - Query the graph: what is in it, which nodes are ready, what state some node is in
 
-The DAG and the project docs (CLAUDE.md, docs/, spec) you read directly; **project code you do not
+The DAG and the project docs (docs/, spec) you read directly; **project code you do not
 read** — implementation detail drags the view from the product manager's toward the HOW. When code
 is needed, dispatch a subagent to read it and hand back distilled conclusions; the pf-conduct
 conductor keeps the same rule.
@@ -74,11 +73,8 @@ spec is read-only to downstream.
 
 ### Step 1: read the docs and the context
 
-> Once the pf system takes over all future plans, the project's MD docs hold ground truth only
-> (what is implemented), and what you read there is reliable.
-
 1. Read `../shared/pf/toolcraft.md` and `../shared/pf/philosophy.md`
-2. Read the project's CLAUDE.md, docs/ and spec
+2. Read the project's docs/ and spec
 3. When building or changing a graph, `pf config get test_tier` reads this project's test tier
    (`full` / `minimal`; factory default `full`, the same as `pf config list` prints). When this
    project has not touched it yet and this run needs `minimal`, ask once, only once, and offer a
@@ -164,26 +160,19 @@ now, some have to enter the graph and queue, and the queued ones have an order a
   `parallel`
 - **Which line**: which line the new work belongs to is settled here, together with value and
   dependency. A line in service whose tags cover the new node takes it; when no line can take it,
-  lay the two roads out for him to pick — which parked line to put back (`pf cycle status <line>
-  active`), or open a new one (`pf cycle start <slug> --title "<the user's own words>" --tags
-  <tags>`). **Only the user decides whether a line comes back to service**; your pen is only his
-  hand. The decision is settled here, and the close only executes it (see step 5)
+  lay the two roads out for him to pick — which parked line to put back
+  (`pf cycle status <line> active`), or open a new one
+  (`pf cycle start <slug> --title "<the user's own words>" --tags <tags>`). **Only the user
+  decides whether a line comes back to service**; your pen is only his hand. The decision is
+  settled here, and the close only executes it (see step 5)
 
 Each piece of work picks one road:
 
 | Which road | The criterion |
 |---|---|
 | **Do it now**: dispatch a subagent, no graph entry | nobody waits on it, one look judges it when it is done, no cross-session needed — all three hold |
-| **A light node**: mark `light` | it has to queue (there is an order or a dependency), but the work is small and the verification light: the user mentions it in passing and the conductor tidies it up itself |
+| **A light node**: mark `light` | it has to queue (there is an order or a dependency), but the work is small and the verification light |
 | **A standard node**: write no `weight` | it has to queue, and the verification needs care (a heavy criterion, several review rounds), possibly across sessions |
-
-Work that lands on the first road, in a few shapes off the top of the head: bring docs and design
-notes up to what is already implemented; run a probe or read a piece of code to answer one
-feasibility question; pick the current state back up for the user (an inventory, a check, a
-rendered graph); reproduce a problem to confirm whether it is there; repository hygiene (stale
-temporary products, duplicate entries a record already holds); write a settled conclusion into the
-project's `.pf/config.json` (`pf config set`); record a piece of debt run into; make a technology
-comparison for a node not yet written down and back-fill the conclusion into its spec.
 
 - **A behavioural change always enters the graph**; small changes where **not a byte changes when
   it runs** — comments, docstrings, formatting, docs only — can be done right now, and the trace
@@ -222,7 +211,7 @@ with the plan — without waiting for him to ask:
   completion rule has already been verified once, and this last gate is the user's. Integration
   that does yield a reading (the interface is through, the two sides line up) is built as usual
 
-### The four questions to ask before writing it down
+#### The four questions to ask before writing it down
 
 These four are settled when the node is built, which is the cheapest moment to change them;
 dragging them past the start costs that node already running.
@@ -247,27 +236,28 @@ needs the user in it to judge can only land on `manual` or `checkpoint`: an agen
 the whole system and wire it up to itself, and the money and the GPU memory burned buy no such
 conclusion.
 
-**Two: how heavy the work entering the graph is.** Split it again by that table in step 3: small
-work with a light verification is marked `light`; the rest goes as `standard`.
+**Two: how heavy the work entering the graph is.** Split it again by the "Each piece of work
+picks one road" table: small work with a light verification is marked `light`; the rest goes as
+`standard`.
 
 **Three: whether the spec passes the executing side's gate.** Only work entering the graph has to
-pass this gate: a node landing in the pipeline has to satisfy those from "Nodes and
-downstream" — a scope written with a single referent, a size one session can carry, and one
-executable completion rule. When any one of them is not satisfied, change the node or split it
-first, and
-write it down only after the user nods.
+pass this gate: a node landing in the pipeline has to satisfy those from "Nodes and downstream" — a
+scope written with a single referent, a size one session can carry, and one executable completion
+rule. When any one of them is not satisfied, change the node or split it first, and write it down
+only after the user nods.
 
-**Four: whose run this work's running is.** To clear debt (a batch of entries some record holds), **do
-not write debt-clearing steps yourself**: run `pf doctor` once and read off which plugins are
+**Four: whose run this work's running is.** To clear debt (a batch of entries some record holds),
+**do not write debt-clearing steps yourself**: run `pf doctor` once and read off which plugins are
 installed, and the dedupe tag and method name each one declares — copy those two strings in. One
-line, `method: <that method>`, means "this node is run by the conductor from that skill itself", and
-the order outranks `weight` (see "Method" in [`../pf-conduct/SKILL.md`](../pf-conduct/SKILL.md)); the
-node carries the metric's dedupe tag, plus this line's tag or the picking step cannot see it. In the
-same spec, write the scope and the criterion out clearly: the scope = one metric or one batch of
-same-domain debt, the criterion = that reading coming back under the line (or that batch of entries
-reaching a terminal status). **When the listing names no plugin that watches this debt, or that
-plugin is not installed**: there is no such road — write an ordinary node, and do not invent a method
-name. A plain node carries no `method`.
+line, `method: <that method>`, means "this node is run by the conductor from that skill itself",
+and the order outranks `weight` (see "Method" in
+[`../pf-conduct/SKILL.md`](../pf-conduct/SKILL.md)); the node carries the metric's dedupe tag,
+plus this line's tag or the picking step cannot see it. In the same spec, write the scope and the
+criterion out clearly: the scope = one metric or one batch of same-domain debt, the criterion =
+that reading coming back under the line (or that batch of entries reaching a terminal status).
+**When the listing names no plugin that watches this debt, or that plugin is not installed**:
+there is no such road — write an ordinary node, and do not invent a method name. A plain node
+carries no `method`.
 
 ### Step 4: landing
 
@@ -276,19 +266,24 @@ name. A plain node carries no `method`.
 Dispatch subagents to do it, several in parallel if you like (first count what is in flight
 against [`../shared/pf/subagents.md`](../shared/pf/subagents.md)), and **they only change files,
 they do not commit**; when it is done, report to the user, and commit in step 5 together. Three
-things belong to this road:
+kinds of work go this road:
 
 - **Docs and design notes catching up with the state**: dispatch a subagent on pf-conduct's
   Doc-sync role card
-  ([`../pf-conduct/subagent-prompts/doc-sync.md`](../pf-conduct/subagent-prompts/doc-sync.md)), and
-  write only what is already implemented — docs/ holding ground truth only is this system's
-  foundation
+  ([`../pf-conduct/subagent-prompts/doc-sync.md`](../pf-conduct/subagent-prompts/doc-sync.md)) and write
+  only what is already implemented — docs/ holding ground truth only is this system's foundation
 - **A non-behavioural small change**: comments, docstrings, formatting, docs only
 - **A one-off feasibility probe**: run a script, read a piece of code, and answer "can this be
   done"; it changes no file and leaves no node
 
-When these pieces are a node's prerequisites, wait
-for them to come back before writing the spec.
+These also go this road: pick the current state back up for the user (an inventory, a check, a
+rendered graph); reproduce a problem to confirm whether it is there; repository hygiene (stale
+temporary products, duplicate entries a record already holds); write a settled conclusion into the
+project's `.pf/config.json` (`pf config set`); record a piece of debt run into; make a technology
+comparison for a node not yet written down and back-fill the conclusion into its spec.
+
+When these pieces are a node's prerequisites, wait for them to come back before writing the
+spec.
 
 Commands, options and values follow `pf dag --help` (already read once in step 1); this section
 carries the judgements and the conventions only.
@@ -303,11 +298,11 @@ carries the judgements and the conventions only.
    the full up- and downstream once; an empty downstream is an orphan, so go back and fill it in
 4. Writing it down: the tool prints the spec path for you, and that file does not exist yet —
    write it directly, do not read it first. Check yourself once: a scope written with a single
-   referent, a size one round can carry, a completion rule in one section (an executable command
-   / script / probe);
-   the debt-clearing kind adds one `method: ` line (the name comes from `pf doctor`) and its
-   scope; anything with
-   function names, file paths or line counts written in gets deleted
+   referent, a size one round can carry, a completion rule in one section (an executable command /
+   script / probe); when the discussion really rejected a practice, add the "what is not done"
+   section as well; the debt-clearing kind adds one `method: ` line (the name comes from
+   `pf doctor`) and its scope; anything with function names, file paths or line counts written in
+   gets deleted
 5. The session a node is born in is not yours to write: the tool records it itself when the node
    is built (`pf dag info`'s `sessions.discussion`, or `pf session show <node>`). To trace it back
    — judging whether this node is the user's own intent, or a spec written crooked, or a situation
@@ -316,6 +311,13 @@ carries the judgements and the conventions only.
    being able to read it is a normal reading
 6. Report the new node and its up- and downstream — where it lands in the graph, said clearly to
    the user
+
+**The "what is not done" section is optional.** Write it only when the discussion really rejected a
+practice: one line each — the rejected practice, one reason, and where it came from (the user's
+call / a reference implementation / a hard boundary). This section has no quota: with nothing
+rejected, do not write it, and do not invent entries to fill it. Nor does it carry what later nodes
+are about. A call often equals an exclusion, and exclusion is the half the discussion drops most
+easily: when it really happened, write it down.
 
 **Changing the graph:**
 
@@ -327,10 +329,10 @@ carries the judgements and the conventions only.
   refuses and lists the dependents, and only an explicit "break the edges with it" from the user
   gets past that refusal
 - Changing the status: one of `todo` / `shelved` / `completed` — a node's own status has only
-  these three, and "a cycle is running it right now" is derived from here. Writing it down is
-  pf-conduct's close, so do not record it for it
-- To shelve a node (put its execution off) → mark it `shelved`; what was shelved, or judged dead
-  at acceptance, and has to be redone → put it back to `todo`
+  these three, and "a cycle is running it right now" is derived from here; to shelve a node (put
+  its execution off) mark it `shelved`, and what was shelved, or judged dead at acceptance, and
+  has to be redone goes back to `todo`. Writing it down is pf-conduct's close, so do not record
+  it for it
 
 ### Step 5: close out
 
@@ -338,9 +340,9 @@ To run it right now, the line was settled together with the nodes in step 3; her
 it, then collect the commits:
 
 1. **Land the line** (the user has nodded; you are only the hand that executes): putting a parked
-   line back runs `pf cycle status <line> active`; opening a new one runs `pf cycle start <slug>
-   --title "<the user's own words>" --tags <tags>` — `--tags` is required, and matches these
-   nodes' tags
+   line back runs `pf cycle status <line> active`; opening a new one runs
+   `pf cycle start <slug> --title "<the user's own words>" --tags <tags>` — `--tags` is required,
+   and matches these nodes' tags
 2. **Collect the commits**, in two shots:
    - **One commit for the graph, the spec and the cycle records** (`docs:`, with the description
      saying which node was added / changed): `.pf/ideas.json`, `.pf/state.json` and
@@ -384,10 +386,9 @@ Distil the key information into the answer; do not dump the raw JSON.
   (its own opening-at-start road stays)
 - **the debt-recording branch**: scanning new debt in, ruling with the user on external — this
   branch's skills (the debt-clearing one included) ship with the plugin that watches that debt, and
-  the conventions are in that folder's own skill: `pf doctor` prints whether that plugin is installed
-  and which name its `method:` line takes. To clear one round of debt on the graph, build a node
-  carrying `method: <that method>` (see the fourth of "The four questions to ask before writing it
-  down")
+  the conventions are in that folder's own skill. To clear one round of debt on the graph, build a
+  node carrying `method: <that method>` (see the fourth of "The four questions to ask before
+  writing it down")
 
 When the user wants to talk a node's implementation through at length → suggest moving to
 `/pf-conduct` (at prepare it aligns the request with the code); when it is only a rough

@@ -70,16 +70,6 @@ Layering by data → API → UI is sound practice; there are two hard constraint
 a verification boundary of its own, so it can be independently confirmed right once done; and the
 spec is read-only to downstream.
 
-## Input
-
-- `/pf-route I want to add a multi-window feature`
-- `/pf-route what is in the graph`, `/pf-route which ones are ready now`
-- `/pf-route n3 what state is it in now`
-- `/pf-route the image-optimisation node is not wanted any more, delete it`
-- `/pf-route rendering has to wait for the primitive loading to finish, connect those two`
-- `/pf-route add a Chinese summary to the meeting notes, and sync the stale README notes`
-- `/pf-route clear one round of debt first, then touch those editor nodes`
-
 ## The flow
 
 ### Step 1: read the docs and the context

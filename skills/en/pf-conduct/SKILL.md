@@ -24,8 +24,9 @@ Four things you do not do:
   dispatch a subagent, with the paths and the questions to ask written into its prompt. This one
   does not hold on a light node (see "Look at the weight first")
 - Only you dispatch subagents: the Execute / Review / Fix you dispatch never dispatch further down
-  (the role cards say this). The pipeline's relay moves on through new sessions — the `dispatch`
-  of a close opens a **new session**, so the chain can run on indefinitely
+  (the role cards say this). The pipeline's relay moves on through new sessions — when the plan says
+  `dispatch` you hand in the ticket and stop, and the host opens the next round itself, so the chain
+  can run on indefinitely
 
 ## How this run goes: the settings
 
@@ -60,7 +61,7 @@ mode is the node's own property, written down by pf-route through `--mode`; you 
 |---|---|---|
 | `manual` | **does not run** execute→review→fix | the whole node moves along in conversation with the user; when the user says "mark it complete, continue", close out on the note's `completed`, and that step does not stop again |
 | `checkpoint` | runs | the whole loop plus the close all finish, and it stops waiting for one "continue" from the user |
-| `auto` | runs | it does not stop: the close opens the next node itself, and only a stuck loop or conflicting requirements go to a human |
+| `auto` | runs | it does not stop: hand in the ticket and the host opens the next round itself; only a stuck loop or conflicting requirements go to a human |
 
 For which step each of the three has its human confirmation point on, and why it is fixed that
 way, see `docs/conduct-state.md` "conclusions and stopping".
@@ -595,10 +596,12 @@ stuck, stop and report to the user, giving them the `prompt` path: once the push
 Once the push succeeds, go by the `action` the `next --after` gave — it carries the commands to
 run and the words to say:
 
-- `dispatch`: `pf dispatch <cycle>` (add `--project <project root>` when cwd is not the project
-  root, and the session starts up in that workspace) — it starts one session for each node this
-  line holds at that moment (one node by default; the nodes whose sessions already started are
-  skipped), reports the line it prints to the user, and then **exits on its own**; it refuses to
+- `dispatch`: **hand in the ticket and stop** — the handoff is on disk and the node is closed, and
+  the host opens the next round itself (the panel's auto-relay, on by default); this session ends
+  here, and no dispatch command is run. Only when the relay is switched off, or the next round
+  fails to appear, does a person re-send it: `pf dispatch <cycle>` (add `--project <project root>`
+  when cwd is not the project root) starts one session for each node this line holds at that moment
+  (one node by default; the nodes whose sessions already started are skipped); it refuses to
   dispatch when the line is not in service, so put the line back in service before re-sending
 - `insert_node`: nodes have just been put into the graph, **nothing was pinned** and there is no
   prompt — commit and push as usual, then run `pf next --cycle <cycle> --spawn --json` and let the

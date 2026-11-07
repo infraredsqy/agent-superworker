@@ -79,7 +79,7 @@ class TestTheSpawnerShell(Base):
         """
         prompt_file = sb.root / 'prompt.txt'
         if prompt:
-            prompt_file.write_text('# /pf-conduct drill\n', encoding='utf-8')
+            prompt_file.write_text('# /sw-conduct drill\n', encoding='utf-8')
         marker_file = _marker_module().marker_path(sb.root, self.CYCLE)
         init = ['Initialize-Spawner', '-CycleId', _ps(self.CYCLE), '-PromptFile', _ps(prompt_file)]
         if marker:
@@ -280,7 +280,7 @@ class TestDSHSpawnFailures(Base):
             self.skipTest('pwsh is not on PATH')
         sb = self.make()
         prompt = sb.root / 'prompt.txt'
-        prompt.write_text('# /pf-conduct drill\n', encoding='utf-8')
+        prompt.write_text('# /sw-conduct drill\n', encoding='utf-8')
         marker = _marker_module().marker_path(sb.root, self.CYCLE)
         proc = subprocess.run(['pwsh', '-NoProfile', '-File', str(SPAWN_DIR / 'dsh-spawn.ps1'),
                                '-CycleId', self.CYCLE, '-PromptFile', str(prompt),

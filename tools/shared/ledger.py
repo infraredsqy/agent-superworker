@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
 """This tree's ledger contract: the one name, the one layout, the one gate.
 
-A project's durable account is its LEDGER, `<project>/.pf/`, and this file is the only place that
-spelling lives -- the graph, the cycle book, the signals, the standing instructions, each node's own
-text and whatever an installed plugin keeps all sit under that one directory, and every tool reaches
-it from here:
+A project's durable account is its LEDGER, `<project>/.superworker/`, and this file is the only place
+that spelling lives -- the graph, the cycle book, the signals, the standing instructions, each node's
+own text and whatever an installed plugin keeps all sit under that one directory, and every tool
+reaches it from here:
 
-    ledger_dir_for(project)     `<project>/.pf/`
-    meta_dir_for(project)       `<project>/.pf/meta/`         the dispatch plumbing, ignored by git
-    nodes_dir_for(project)      `<project>/.pf/nodes/`        one directory per node
-    config_path_for(project)    `<project>/.pf/config.json`   this project's settings layer
-    home_config_path()          `~/.pf/config.json`           the machine's settings layer
+    ledger_dir_for(project)     `<project>/.superworker/`
+    meta_dir_for(project)       `<project>/.superworker/meta/`         the dispatch plumbing, ignored by git
+    nodes_dir_for(project)      `<project>/.superworker/nodes/`        one directory per node
+    config_path_for(project)    `<project>/.superworker/config.json`   this project's settings layer
+    home_config_path()          `~/.superworker/config.json`           the machine's settings layer
 
 The three `*_of(ledger_dir)` forms take the ledger directory itself, for a caller that already holds
 one: an in-process binding that moves per project, a worktree's root, home treated as a project. The
 project forms are those three one level up. Everything takes its input explicitly -- `project` and
 `ledger_dir` are required, never None; a caller whose project is optional keeps that optionality (and
 the mutable binding behind it) in its own wrapper. The machine layer is the same shape one home up,
-and `PF_HOME_DIR` is its own switch (a sandbox, a drill copy): read here, so the reader and the writer
+and `SUPERWORKER_HOME_DIR` is its own switch (a sandbox, a drill copy): read here, so the reader and the writer
 of the settings resolve that layer the same way.
+
+The old spelling of that directory lives here too, once -- `LEGACY_DIR_NAME`, `.pf` -- because two
+words have to act on it: `migrate` moves a workspace's records out of it, and `doctor` says such a
+workspace has records waiting to move. No other file spells it.
 
 A project either commits its ledger or keeps it to itself, and nothing here cares which. `init` is
 what puts one in place, and the two files it leaves behind are the judgement of whether that happened:
@@ -31,10 +35,10 @@ what puts one in place, and the two files it leaves behind are the judgement of 
 root maps back to the main tree, because that is where the ledger is.
 
 The boundary with the rest of `tools/shared/`: `loader.py`, `jsonio.py` and `ledgerlock.py` are
-stdlib-only and know nothing about `.pf` -- the first loads files by path, the second reads and writes
-one JSON record, the third hands out a lock over whatever directory it is given. This file is the one
-that knows `.pf` as a word, and it still knows nothing about the shape of any record inside it: what a
-cycle, a node, a signal or a close looks like belongs to those owners.
+stdlib-only and know nothing about `.superworker` -- the first loads files by path, the second reads
+and writes one JSON record, the third hands out a lock over whatever directory it is given. This file
+is the one that knows `.superworker` as a word, and it still knows nothing about the shape of any
+record inside it: what a cycle, a node, a signal or a close looks like belongs to those owners.
 
 It imports the standard library and loads nothing -- not even `loader.py`, which could not be shared
 with a file that has no loader yet anyway. A caller reaches it by path, like every other file outside
@@ -45,20 +49,25 @@ no path is computed from `__file__`, so the name has one home and no copy of it 
 from pathlib import Path
 import os
 
-__all__ = ['CONFIG_NAME', 'INIT_MARKERS', 'LEDGER_NAME', 'config_path_for', 'config_path_of',
-           'home_config_path', 'init_message', 'is_initialized', 'ledger_dir_for', 'meta_dir_for',
-           'meta_dir_of', 'nodes_dir_for', 'nodes_dir_of', 'resolve_project_root']
+__all__ = ['CONFIG_NAME', 'INIT_MARKERS', 'LEDGER_NAME', 'LEGACY_DIR_NAME', 'config_path_for',
+           'config_path_of', 'home_config_path', 'init_message', 'is_initialized', 'ledger_dir_for',
+           'legacy_ledger_dir_for', 'meta_dir_for', 'meta_dir_of', 'nodes_dir_for', 'nodes_dir_of',
+           'resolve_project_root']
 
-#: The ledger's own name: `.pf/`, a dot-directory, the tool's own household like `.work/`.
-LEDGER_NAME = '.pf'
+#: The ledger's own name: `.superworker/`, a dot-directory, the tool's own household like `.work/`.
+LEDGER_NAME = '.superworker'
 
-#: What `init` writes into the ledger. Their presence is the whole judgement of "this `.pf/` was put
-#: there on purpose" -- a pure filesystem question, never git (a committed ledger would otherwise read
-#: as un-init'ed between `init` and the project's first `git add`).
+#: The ledger's name before the rename -- the one copy of that literal. Only `migrate` and `doctor`
+#: ever act on it, and they ask for it here rather than spelling it.
+LEGACY_DIR_NAME = '.pf'
+
+#: What `init` writes into the ledger. Their presence is the whole judgement of "this `.superworker/`
+#: was put there on purpose" -- a pure filesystem question, never git (a committed ledger would
+#: otherwise read as un-init'ed between `init` and the project's first `git add`).
 INIT_MARKERS = ('.gitignore', '.gitattributes')
 
-#: The settings file's name, the same in both override layers: `<project>/.pf/config.json` and
-#: `~/.pf/config.json`.
+#: The settings file's name, the same in both override layers: `<project>/.superworker/config.json` and
+#: `~/.superworker/config.json`.
 CONFIG_NAME = 'config.json'
 
 
@@ -66,14 +75,14 @@ def resolve_project_root(cwd) -> Path:
     """cwd is the root; the one exception: when cwd is a linked worktree's checkout root, go back to
     the main tree (the rule lives in the ledger).
 
-    In parallel mode a node's code work goes into the main tree's `.pf/worktrees/<short id>`, so the
-    worker's cwd lands inside the worktree; and a worktree is a full checkout, so in commit mode it
-    holds a copy of `.pf/` as of the moment of the fork -- if a recording command accepted that copy,
-    settling would land on a stale snapshot, and the two lines would not see each other's claims. A
-    worktree root's `.git` is a **file** (`gitdir: <main tree>/.git/worktrees/<name>`), while in the
-    main tree it is a directory: follow the pointer, and three levels up from `worktrees` is the main
-    tree root. A submodule's `.git` file points at `.git/modules/...`, which is not a worktree, so it
-    stays put in cwd. When the main tree has no ledger (it is not a pipeline project) nothing moves,
+    In parallel mode a node's code work goes into the main tree's `.superworker/worktrees/<short id>`,
+    so the worker's cwd lands inside the worktree; and a worktree is a full checkout, so in commit mode
+    it holds a copy of `.superworker/` as of the moment of the fork -- if a recording command accepted
+    that copy, settling would land on a stale snapshot, and the two lines would not see each other's
+    claims. A worktree root's `.git` is a **file** (`gitdir: <main tree>/.git/worktrees/<name>`), while
+    in the main tree it is a directory: follow the pointer, and three levels up from `worktrees` is the
+    main tree root. A submodule's `.git` file points at `.git/modules/...`, which is not a worktree, so
+    it stays put in cwd. When the main tree has no ledger (it is not a pipeline project) nothing moves,
     so the error that follows fires right where it is.
     """
     cwd = Path(cwd)
@@ -99,8 +108,13 @@ def resolve_project_root(cwd) -> Path:
 
 
 def ledger_dir_for(project) -> Path:
-    """`<project>/.pf/`."""
+    """`<project>/.superworker/`."""
     return Path(project) / LEDGER_NAME
+
+
+def legacy_ledger_dir_for(project) -> Path:
+    """`<project>/.pf/`: the directory the records were kept in before the rename."""
+    return Path(project) / LEGACY_DIR_NAME
 
 
 def meta_dir_of(ledger_dir) -> Path:
@@ -120,29 +134,30 @@ def config_path_of(ledger_dir) -> Path:
 
 
 def meta_dir_for(project) -> Path:
-    """`<project>/.pf/meta/`."""
+    """`<project>/.superworker/meta/`."""
     return meta_dir_of(ledger_dir_for(project))
 
 
 def nodes_dir_for(project) -> Path:
-    """`<project>/.pf/nodes/`."""
+    """`<project>/.superworker/nodes/`."""
     return nodes_dir_of(ledger_dir_for(project))
 
 
 def config_path_for(project) -> Path:
-    """`<project>/.pf/config.json`."""
+    """`<project>/.superworker/config.json`."""
     return config_path_of(ledger_dir_for(project))
 
 
 def home_config_path() -> Path:
-    """This machine's settings layer: `~/.pf/config.json` (the same one `pf config set --global` writes).
+    """This machine's settings layer: `~/.superworker/config.json` (the same one `sw config set --global`
+    writes).
 
     Home is counted as a project, so this layer has the same spelling and the same name as the project
-    layer. `PF_HOME_DIR` points "home" somewhere else (a sandbox for tests and drills, the same
+    layer. `SUPERWORKER_HOME_DIR` points "home" somewhere else (a sandbox for tests and drills, the same
     precedent as `ZCODE_DATA_BASE_DIR`): it is this layer's own switch, read here, so the reading side
     and the writing side do not resolve that layer each their own way.
     """
-    home = os.environ.get('PF_HOME_DIR') or str(Path.home())
+    home = os.environ.get('SUPERWORKER_HOME_DIR') or str(Path.home())
     return config_path_for(Path(home).expanduser())
 
 
@@ -157,9 +172,19 @@ def init_message(ledger_dir, *, project=None) -> str:
     are missing, and how to run `init`.
 
     `project` is the project root the caller named: when it is given it goes into that example command
-    line (`pf init --project`), because such a call may not run inside the project; when it is not, the
-    line is "run `pf init` where you are".
+    line (`sw init --project`), because such a call may not run inside the project; when it is not, the
+    line is "run `sw init` where you are".
+
+    A workspace whose records are still under the old directory gets the move named instead of
+    `init`: init-ing next to them would leave two record directories, and which of the two is the
+    truth is exactly what a person has to decide.
     """
     tail = f' --project "{project}"' if project else ''
-    return (f'{ledger_dir} was never init-ed (missing {" or ".join(INIT_MARKERS)}). Run this first:\n'
-            f'  pf init{tail}')
+    message = (f'{ledger_dir} was never init-ed (missing {" or ".join(INIT_MARKERS)}). Run this first:\n'
+               f'  sw init{tail}')
+    legacy = Path(ledger_dir).parent / LEGACY_DIR_NAME
+    if legacy.is_dir():
+        message += ('\nBut this workspace does have records under the old spellings: '
+                    f'{legacy} is here. Move them instead of starting a second directory:\n'
+                    f'  sw migrate 0.1.0{tail}')
+    return message

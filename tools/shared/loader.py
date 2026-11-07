@@ -85,7 +85,7 @@ def load_shared(stem: str):
 
     The door every file outside `tools/shared/` uses for the shared primitives: the folder's layout
     (`<stem>.py`, with a hyphen in the stem where the name reads better: `session-note`) and the
-    registration name one process shares it under (`pf_shared_` + the stem without its hyphens) are
+    registration name one process shares it under (`sw_shared_` + the stem without its hyphens) are
     stated here once, and no caller spells either of them again.
 
     `register` + `reuse` by construction: a shared primitive is one module per process, and the lock's
@@ -100,7 +100,7 @@ def load_shared(stem: str):
     """
     module = _LOADED.get(stem)
     if module is None:
-        module = load_by_path('pf_shared_' + stem.replace('-', ''),
+        module = load_by_path('sw_shared_' + stem.replace('-', ''),
                               Path(__file__).resolve().parent / f'{stem}.py',
                               register=True, reuse=True)
         _LOADED[stem] = module

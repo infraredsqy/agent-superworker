@@ -3,11 +3,11 @@
 Owns HERE/CONDUCT_DIR/TOOLS_DIR, the tool paths, the dag-manage resolution that sets
 DSH_CONDUCT_DAG_MANAGE, the pipeline constants, load_pipeline/_fresh_module/shared_loader, chdir/
 _decode/_child_env, and the pieces the `cases_*` files share instead of each writing their own:
-`init_markers` (what `init` puts in a `.pf/`), `run_argv` and `git` (one child process, one identity),
+`init_markers` (what `init` puts in a `.superworker/`), `run_argv` and `git` (one child process, one identity),
 `patched` (one place a global name is swapped), `spawn_dry_run` (the one place a session start is
 turned into a drill), `shipped_sources` (the one list of the shipped tree), and the plugins
 fixture -- `PLUGINS_DIR`, `requires_plugin` (the skip a case whose subject is a shipped declaration
-carries), `plugins_dir` (the `PF_PLUGINS_DIR` switch, for one block) and `write_plugin` (one folder,
+carries), `plugins_dir` (the `SUPERWORKER_PLUGINS_DIR` switch, for one block) and `write_plugin` (one folder,
 hand-written).
 """
 
@@ -40,7 +40,7 @@ STATE_MANAGE = CONDUCT_DIR / 'state-manage.py'
 SIGNAL_PY = CONDUCT_DIR / 'signal.py'
 HANDOFF_PY = CONDUCT_DIR / 'handoff.py'
 #: The shipped plugins directory: one folder per plugin, and the folder is the plugin's identity.
-#: A case that needs a declaration points `PF_PLUGINS_DIR` elsewhere (`plugins_dir`) instead of
+#: A case that needs a declaration points `SUPERWORKER_PLUGINS_DIR` elsewhere (`plugins_dir`) instead of
 #: reading this one; a case whose SUBJECT is the shipped plugin skips itself when it is not installed
 #: (`requires_plugin`), because deleting the folder is a supported project state. No folder is named
 #: here: which plugins ship is the tree's own answer, read off the directory, and a constant naming
@@ -97,20 +97,20 @@ def shipped_sources():
 #  A throwaway project's ledger: the one thing `init` is
 # ═══════════════════════════════════════════════════════════════════════════════
 
-#: What `init` writes into `.pf/`, and the only thing that says a ledger was put there on purpose:
-#: every mutating command refuses a `.pf/` without these two. Stated once -- a fixture that gets one
+#: What `init` writes into `.superworker/`, and the only thing that says a ledger was put there on purpose:
+#: every mutating command refuses a `.superworker/` without these two. Stated once -- a fixture that gets one
 #: of them wrong is refused deep inside a tool, where it reads as the tool's fault, not the fixture's.
 INIT_GITIGNORE = 'meta/\nworktrees/\ntemp/\n'
 INIT_GITATTRIBUTES = '** -text\n'
 
 
 def init_markers(project) -> Path:
-    """Write the two `init` markers into `<project>/.pf/` and return that ledger directory.
+    """Write the two `init` markers into `<project>/.superworker/` and return that ledger directory.
 
     For a throwaway project these two files are the whole of what `init` would do (`init` also
     clones the ledger and writes its usage note; nothing a case reads depends on either).
     """
-    ledger = Path(project) / '.pf'
+    ledger = Path(project) / '.superworker'
     ledger.mkdir(parents=True, exist_ok=True)
     (ledger / '.gitignore').write_text(INIT_GITIGNORE, encoding='utf-8')
     (ledger / '.gitattributes').write_text(INIT_GITATTRIBUTES, encoding='utf-8')
@@ -151,8 +151,8 @@ def git_env():
     configured into the repository (two `git config` starts saved per case), and it can never fall
     back to the machine's global one.
     """
-    return dict(_child_env(), GIT_AUTHOR_NAME='pf test', GIT_AUTHOR_EMAIL='pf-test@example.invalid',
-                GIT_COMMITTER_NAME='pf test', GIT_COMMITTER_EMAIL='pf-test@example.invalid')
+    return dict(_child_env(), GIT_AUTHOR_NAME='sw test', GIT_AUTHOR_EMAIL='sw-test@example.invalid',
+                GIT_COMMITTER_NAME='sw test', GIT_COMMITTER_EMAIL='sw-test@example.invalid')
 
 
 def git(cwd, *args, check=True, env=None):
@@ -198,7 +198,7 @@ def shared_loader():
     """
     global _SHARED_LOADER
     if _SHARED_LOADER is None:
-        _SHARED_LOADER = _fresh_module('pf_shared_loader', TOOLS_DIR / 'shared' / 'loader.py')
+        _SHARED_LOADER = _fresh_module('sw_shared_loader', TOOLS_DIR / 'shared' / 'loader.py')
     return _SHARED_LOADER
 
 
@@ -287,7 +287,7 @@ def spawn_dry_run():
 
 #: The registry's one switch: point the scan at a throwaway directory. Read at every call (the
 #: registry caches nothing), so a case can set it for one block and the next case sees the tree again.
-PLUGINS_ENV = 'PF_PLUGINS_DIR'
+PLUGINS_ENV = 'SUPERWORKER_PLUGINS_DIR'
 
 
 def requires_plugin(name: str, *more: str):
@@ -296,7 +296,7 @@ def requires_plugin(name: str, *more: str):
     A plugin is a folder, and deleting it is a supported state of this tree: the pipeline still
     closes and still dispatches (that is the node's completion criterion). So a case that drives THAT
     plugin must skip rather than fail when the folder is not installed -- the mechanism cases point
-    `PF_PLUGINS_DIR` at their own fixture instead and never depend on the shipped tree. Several names
+    `SUPERWORKER_PLUGINS_DIR` at their own fixture instead and never depend on the shipped tree. Several names
     mean every one of them: a case that needs both plugins installed is one case, and one decorator
     says so (a stacked pair would leave the reason of whichever was applied last).
 

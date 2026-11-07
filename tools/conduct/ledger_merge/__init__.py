@@ -1,13 +1,13 @@
-"""The merge driver's body: one three-way merge of one `.pf/` record, and the rules it runs on.
+"""The merge driver's body: one three-way merge of one `.superworker/` record, and the rules it runs on.
 
 `ledger-merge.py` is the entry point -- the argv surface git invokes -- and nothing else; everything
 behind it is here. The layers:
 
     generic.py        the three-way primitives, the decision log, and the record vocabulary
-    ideas.py          `.pf/ideas.json` -- the DAG
-    state.py          `.pf/state.json` -- the cycles
-    instructions.py   `.pf/instructions.json` -- the standing instructions
-    signal.py         a node's ticket under `.pf/signals/<cycle>/<node>.json`
+    ideas.py          `.superworker/ideas.json` -- the DAG
+    state.py          `.superworker/state.json` -- the cycles
+    instructions.py   `.superworker/instructions.json` -- the standing instructions
+    signal.py         a node's ticket under `.superworker/signals/<cycle>/<node>.json`
 
 The two tools it leans on, each by the same rule -- the sibling directory of the shipped tree, or the
 tool's own variable for a review draft or a drill copy that points at the real tool:
@@ -20,7 +20,7 @@ Which ledger file is this? (the fourth argument)
 Under git, `<ours>` is NOT the worktree file: for a content merge git materializes all three sides as
 its own temp files (`.merge_file_XXXXXXXX`) and copies `<ours>` into place afterwards. So the driver
 is told which ledger it is looking at by git's `%P`, the path in the repo, and the recommended
-`merge.pf.driver` command passes it as the fourth argument. Name first (`%P`, then `<ours>`/`<theirs>`
+`merge.superworker.driver` command passes it as the fourth argument. Name first (`%P`, then `<ours>`/`<theirs>`
 /`<base>` for a hand-run), shape second (a `nodes` / `cycles` / `instructions` key, else a ticket), and
 a file that is neither is refused with exit 2.
 
@@ -40,11 +40,11 @@ come from one tree and the two formats can never drift apart.
 
 One record per entry, and what identifies it
 --------------------------------------------
-    .pf/ideas.json          nodes{}          key: the node uuid
-    .pf/state.json          cycles[]         key: `id`
-    .pf/instructions.json   instructions[]   key: `id`
+    .superworker/ideas.json          nodes{}          key: the node uuid
+    .superworker/state.json          cycles[]         key: `id`
+    .superworker/instructions.json   instructions[]   key: `id`
                             removed[]        key: `id` -- the trace a removal leaves (id + moment)
-    .pf/signals/<cyc>/<node>.json            the file IS one record: one node's ticket
+    .superworker/signals/<cyc>/<node>.json            the file IS one record: one node's ticket
 
 Every rule below runs ONLY when both sides changed a field to different values; `ours == base` takes
 theirs, `theirs == base` takes ours, and a field only one side touched is not a question at all.
@@ -98,7 +98,7 @@ NOTES  (deliberate consequences, worth knowing before trusting a clean merge)
   * A side that is missing (the whole FILE) is "take the side that exists", so a file one side
     deleted comes back. That is about the files git hands the driver, not about entries inside one.
   * Deletions propagate for the two collections a human really deletes from: the GRAPH
-    (`.pf/ideas.json`, `dag-manage rm`) and the standing instructions (`instruction rm`). One side
+    (`.superworker/ideas.json`, `dag-manage rm`) and the standing instructions (`instruction rm`). One side
     takes an entry off, the other leaves it alone -> it is gone. The other three shapes are the ones
     listed above (added / edited-that-way -> conflict / removed both ways). Cycles keep the old union
     rule: no tool deletes one, so a resurrection is a no-op rather than a surprise.
@@ -162,7 +162,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -242,7 +242,7 @@ def _read(path: Path, label: str):
 def _write(kind: str, path: Path, payload: bytes) -> bool:
     """Land the merged bytes under the project's ledger lock; False when the lock never came free.
 
-    `.pf/meta/ledger.lock` is what makes this driver exclude the mutating commands (conduct / dag,
+    `.superworker/meta/ledger.lock` is what makes this driver exclude the mutating commands (conduct / dag,
     and whatever an installed plugin keeps a record with): the driver rewrites the WHOLE file, and a
     whole-file write racing another whole-file write
     silently erases one side's records. The lock itself is `tools/shared/ledgerlock.py` -- one
@@ -377,7 +377,7 @@ def run(args) -> int:
 
     if rep.conflicts:
         rep.flush_conflicts()
-        print(f'pf: {len(rep.conflicts)} places need a human decision; not a byte of {rep.path} was '
+        print(f'sw: {len(rep.conflicts)} places need a human decision; not a byte of {rep.path} was '
               f'touched. Merge it by hand first, then `git add` and carry on.', file=sys.stderr)
         return EXIT_CONFLICT
 

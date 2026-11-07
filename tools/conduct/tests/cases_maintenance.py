@@ -30,7 +30,7 @@ because the ordinary run has every folder installed and a decorator lost from on
 there (`cases_guards.py`); the doors written per method keep it by hand. What the two plugins do to
 EACH OTHER -- a close that crosses both lines, and a tree that has lost one of the two folders -- is
 `TestTheTwoLinesInOneClose`. The mechanism cases that must run with no plugin installed point
-`PF_PLUGINS_DIR` at their own folder -- `cases_plugin.py`.
+`SUPERWORKER_PLUGINS_DIR` at their own folder -- `cases_plugin.py`.
 
 The side where a line really runs (the graph edit through real processes, a whole line walked to the
 end, the form the note's receiver sees) lives in `cases_maintenance_run.py`.
@@ -197,7 +197,7 @@ class TicketDebt(Debt):
     line = 'test_seconds_limit'
     reading = 'test_seconds'
     tag = 'test-audit:test_seconds'
-    method = 'pf-test-audit'
+    method = 'sw-test-audit'
     source = 'ticket'
     when_knob = line                       # the form asks once this line is in force
     subject = "the project test suite's full wall clock (seconds)"
@@ -228,10 +228,10 @@ class PoolDebt(Debt):
     line = 'issue_pool_weight_limit'
     reading = 'issue_pool_weight'
     tag = 'issue:issue_pool_weight'
-    method = 'pf-issue-repair'
+    method = 'sw-issue-repair'
     source = 'pool'                        # nobody reports it: the tool computes it, so no form asks
     subject = "the issue pool's weighted sum"
-    shows = ('`pf issue weight`', 'the note does not carry it')
+    shows = ('`sw issue weight`', 'the note does not carry it')
     at = 8
     under = 2
     exact = 8
@@ -258,7 +258,7 @@ def set_config(sb, key, value, *extra):
     """Write a knob into the project through its own command (the same chain these plugins read).
 
     `--global` goes through the sandbox's own home directory (`Sandbox.home`), and `--node <id>` /
-    `--cycle <id>` at the layer each names: the layer a case writes is the layer `pf config` writes.
+    `--cycle <id>` at the layer each names: the layer a case writes is the layer `sw config` writes.
     """
     return run_state_manage(sb.root, 'config', 'set', key, value, *extra)
 
@@ -386,7 +386,7 @@ class ChannelCases:
         self.assertEqual(configured.current_node(), NODE2, 'the close still pins its own pick')
         self.assertEqual(len(configured.dag()['nodes']), 2, 'no node was inserted')
 
-        for rel in ('.pf/ideas.json', '.pf/state.json'):
+        for rel in ('.superworker/ideas.json', '.superworker/state.json'):
             left = walked(json.loads(control.tree_contents()[rel]))
             right = walked(json.loads(configured.tree_contents()[rel]))
             self.assertEqual(left, right, f'{rel} must be what it always was')
@@ -475,7 +475,7 @@ class ChannelCases:
         action = sb.close_round(NODE)
 
         made = action['node_id']
-        launch = sb.root / '.pf' / 'meta' / 'launch' / 'cyc'
+        launch = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc'
         self.assertFalse((launch / made).exists(),
                          f'an insertion wrote a prompt file for {made}: {launch / made}')
         self.assertFalse(pipeline.started_marker(sb.root, 'cyc', made).is_file(),
@@ -556,7 +556,7 @@ class ChannelCases:
 
         action = sb.close_round(NODE)
         made = action['node_id']
-        spec = (sb.root / '.pf' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
+        spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         node = sb.dag()['nodes'][made]
 
         # why: which metric, what it read, where the line is
@@ -596,7 +596,7 @@ class ChannelCases:
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
         action = sb.close_round(NODE)
         made = action['node_id']
-        spec = (sb.root / '.pf' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
+        spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
 
         self.assertEqual(len(sb.dag()['nodes']), 3)
         self.assertIn('the line in force for this close', spec)
@@ -766,7 +766,7 @@ class SwitchCases:
         does not insert even though every wider layer says on."""
         sb = self.crossed_line(layer='node', value='off')
 
-        node_layer = sb.root / '.pf' / 'nodes' / NODE / 'config.json'
+        node_layer = sb.root / '.superworker' / 'nodes' / NODE / 'config.json'
         self.assertEqual(json.loads(node_layer.read_text(encoding='utf-8')),
                          {self.DEBT.switch: 'off'})
         sources = pipeline.knob_sources(sb.root, cycle=sb.cycle(), node=NODE)
@@ -989,9 +989,9 @@ class TestPoolScope(ScopeCases, Base):
 
         action = sb.close_round(NODE)
         made = action['node_id']
-        spec = (sb.root / '.pf' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
+        spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
 
-        self.assertIn('`pf issue weight`', spec)
+        self.assertIn('`sw issue weight`', spec)
         self.assertIn('the note does not carry it', spec)
         self.assertNotIn('"reading": {"issue_pool_weight', spec)
 
@@ -1115,7 +1115,7 @@ def plugins_only(name):
     """The shipped plugins tree with only `name`'s folder in it: one plugin installed, one gone.
 
     The folder is COPIED into a throwaway directory and the scan is pointed there
-    (`PF_PLUGINS_DIR`), because "the folder was deleted" is a state of THIS tree and the suite must
+    (`SUPERWORKER_PLUGINS_DIR`), because "the folder was deleted" is a state of THIS tree and the suite must
     not delete the tree's own folder to produce it. What the copy lands in is shaped like the
     checkout it came from: `<tmp>/plugins/<name>/` is the folder, and the checkout's own
     `tools/shared/` is copied beside it, because a plugin's tool walks up from its own place for the
@@ -1233,7 +1233,7 @@ class TestTheTwoLinesInOneClose(Base):
         # handed the sibling's skill, and the two nodes do not read as the same debt
         for debt in debts:
             uid = owner[debt.reading]
-            spec = (sb.root / '.pf' / 'nodes' / uid / 'spec.md').read_text(encoding='utf-8')
+            spec = (sb.root / '.superworker' / 'nodes' / uid / 'spec.md').read_text(encoding='utf-8')
             other = POOL if debt is TICKET else TICKET
             self.assertIn(f'method: {debt.method}', spec)
             self.assertNotIn(other.method, spec,

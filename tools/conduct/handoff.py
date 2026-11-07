@@ -36,7 +36,7 @@ node, so a stale session reporting on a node that was closed and released long a
 before anything is written. A node being redone is claimed again (revive, `cycle retry --drop`,
 `cycle hold`), and its second ticket is legitimate: the path keeps one entry per close, so the
 redo reads as the walk it was. The signal file is keyed by the node
-(`.pf/signals/<cycle>/<node>.json`, next to `state.json`), so no round or stage number appears
+(`.superworker/signals/<cycle>/<node>.json`, next to `state.json`), so no round or stage number appears
 anywhere in this command.
 """
 from __future__ import annotations
@@ -61,14 +61,14 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: where `.pf/` lands and the worktree-to-main-tree rule -- one source."""
+    """`tools/shared/ledger.py`: where `.superworker/` lands and the worktree-to-main-tree rule -- one source."""
     return _loader().load_shared('ledger')
 
 
@@ -81,7 +81,7 @@ def _project_root(project: Path) -> Path:
     """Go back to the main tree when cwd (or `--project`) lands in a linked worktree.
 
     In parallel mode this rule is run from the worktree's cwd: the note must land in the main tree's
-    `.pf/signals/` and the marker in the main tree's `.pf/meta/`. The rule lives in exactly one
+    `.superworker/signals/` and the marker in the main tree's `.superworker/meta/`. The rule lives in exactly one
     place, `tools/shared/ledger.py`, and this borrows it.
     """
     return _ledger().resolve_project_root(project)
@@ -103,7 +103,7 @@ def _marker():
 def _write_marker(project: Path, cycle: str, phase: str, reason: str, attempts: int = 0) -> None:
     # Not part of the record: the marker is a "this chain broke" flag a human deletes once they
     # have taken over, so it must not travel with the project's history. It sits in `meta/`, which
-    # `.pf/.gitignore` keeps out of both the project's history and the ledger's own. One file per
+    # `.superworker/.gitignore` keeps out of both the project's history and the ledger's own. One file per
     # cycle: two lines run side by side under parallel=2, and a successful spawn on line B must not
     # erase line A's "chain broke here" flag (the spawners clear the marker of their OWN cycle on
     # success).
@@ -266,8 +266,8 @@ def main(argv=None) -> int:
                  else 'it is holding nothing')
         print(f'Error: cycle "{args.cycle}" is not holding {args.node} ({where}); nothing was '
               f'written. A node this line already closed out is the usual reason: put it back in '
-              f'play and pin the line on it again -- `pf dag status {args.node} todo`, then '
-              f'`pf cycle hold {args.cycle} {args.node}` -- and the extra round lands as another '
+              f'play and pin the line on it again -- `sw dag status {args.node} todo`, then '
+              f'`sw cycle hold {args.cycle} {args.node}` -- and the extra round lands as another '
               f'step on the line.', file=sys.stderr)
         return 2
     try:

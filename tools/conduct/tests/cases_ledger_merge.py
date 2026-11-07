@@ -1,4 +1,4 @@
-"""`ledger-merge.py`: the git merge driver for the ledger under `.pf/`.
+"""`ledger-merge.py`: the git merge driver for the ledger under `.superworker/`.
 
 Run it either way:
 
@@ -19,7 +19,7 @@ decoder, the process runner, and the two files `init` writes. What is pinned:
   * the program itself, through the shipped process (`TestDriverContract`, and it alone): the argv
     surface (`--dry-run`, the `%P` fourth argument), the exit codes, a file that is not a ledger
     refused -- the interface git actually invokes
-  * a real `git merge`, through a real `.gitattributes` + `merge.pf.driver`
+  * a real `git merge`, through a real `.gitattributes` + `merge.superworker.driver`
     (`cases_ledger_merge_git.py`)
 """
 
@@ -60,16 +60,16 @@ LOADER = shared_loader()
 DRIVER = LOADER.load_by_path('ledger_merge_under_test', MERGE_PY, register=True, reuse=True)
 MERGE = LOADER.load_by_path('pf_conduct_ledger_merge', MERGE_PKG / '__init__.py',
                             package_dir=MERGE_PKG, register=True, reuse=True)
-STORE = LOADER.load_by_path('pf_state_ledger_merge_test',
+STORE = LOADER.load_by_path('sw_state_ledger_merge_test',
                             CONDUCT_DIR / 'state' / '__init__.py',
                             package_dir=CONDUCT_DIR / 'state',
                             register=True, reuse=True).store
 
 
 def tool_bytes(data, sort_keys=False) -> bytes:
-    """A ledger file exactly as the tools write it: CRLF, indent=2, no trailing newline."""
+    """A ledger file exactly as the tools write it: LF, indent=2, no trailing newline."""
     text = json.dumps(data, indent=2, ensure_ascii=False, sort_keys=sort_keys)
-    return text.replace('\n', os.linesep).encode('utf-8')
+    return text.encode('utf-8')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -134,7 +134,7 @@ class LedgerCase(unittest.TestCase):
     not have it" are expressed, and the driver has to cope with both.
     """
 
-    LEDGER = '.pf/ideas.json'
+    LEDGER = '.superworker/ideas.json'
     SORT_KEYS = True
     #: The rule matrix decides in this process; only the program contract pins the shipped process.
     #: See the module docstring for the split's rationale.
@@ -145,7 +145,7 @@ class LedgerCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
         # init's two marker files: the write-back takes the project's lock too, and the lock only
-        # lands in an init-ed `.pf/`.
+        # lands in an init-ed `.superworker/`.
         init_markers(self.root)
 
     # ── the fixture ──────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ class LedgerCase(unittest.TestCase):
             argv.insert(0, '--dry-run')
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            MERGE.store().bind_paths(self.root.resolve() / '.pf')
+            MERGE.store().bind_paths(self.root.resolve() / '.superworker')
             code = DRIVER.main(argv)
         return subprocess.CompletedProcess(argv, code, out.getvalue(), err.getvalue())
 
@@ -379,7 +379,7 @@ class TestIdeasMerge(LedgerCase):
 class TestStateMerge(LedgerCase):
     """The cycles: `path` is append-only."""
 
-    LEDGER = '.pf/state.json'
+    LEDGER = '.superworker/state.json'
     SORT_KEYS = False
 
     def test_a_path_that_is_a_prefix_of_the_other_is_extended(self):
@@ -470,7 +470,7 @@ class TestInstructionsMerge(LedgerCase):
     """The account: whole-field edits merge, a resolution moves as one act, a removal is a deletion
     of the graph's kind."""
 
-    LEDGER = '.pf/instructions.json'
+    LEDGER = '.superworker/instructions.json'
     SORT_KEYS = False
 
     def two_entries(self):
@@ -684,7 +684,7 @@ class TestInstructionsMerge(LedgerCase):
 class TestSignalMerge(LedgerCase):
     """A ticket is one report: recency decides it, and a terminal status is privileged."""
 
-    LEDGER = f'.pf/signals/cyc/{NODE1}.json'
+    LEDGER = f'.superworker/signals/cyc/{NODE1}.json'
     SORT_KEYS = False
 
     def test_a_terminal_status_beats_a_running_one(self):
@@ -826,11 +826,11 @@ class TestDriverContract(LedgerCase):
         self.assertEqual(before, broken.read_bytes(), 'a refused read still touched the file')
 
     def test_the_ledger_name_is_the_dispatch(self):
-        self.assertEqual('ideas', MERGE._kind_of('.pf/ideas.json'))
-        self.assertEqual('state', MERGE._kind_of(r'C:\repo\.pf\state.json'))
-        self.assertEqual('instructions', MERGE._kind_of('.pf/instructions.json'))
-        self.assertEqual('signal', MERGE._kind_of('.pf/signals/cyc/aaaa1111.json'))
-        self.assertIsNone(MERGE._kind_of('.pf/notes.json'))
+        self.assertEqual('ideas', MERGE._kind_of('.superworker/ideas.json'))
+        self.assertEqual('state', MERGE._kind_of(r'C:\repo\.superworker\state.json'))
+        self.assertEqual('instructions', MERGE._kind_of('.superworker/instructions.json'))
+        self.assertEqual('signal', MERGE._kind_of('.superworker/signals/cyc/aaaa1111.json'))
+        self.assertIsNone(MERGE._kind_of('.superworker/notes.json'))
 
     def test_the_shape_is_the_dispatch_when_there_is_no_name(self):
         """Under git `%O`/`%A`/`%B` are `.merge_file_XXXXXXXX`; `%P` names the file, but the driver
@@ -870,7 +870,7 @@ class TestDriverContract(LedgerCase):
         temp = self.root / '.merge_file_ABC123'
         temp.write_bytes(tool_bytes(mins, sort_keys=True))
         proc = run_argv([MERGE_PY, self.side_path('base'), temp, self.side_path('theirs'),
-                         '.pf/ideas.json'], cwd=self.root, check=False)
+                         '.superworker/ideas.json'], cwd=self.root, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         merged = _decode(temp)
         self.assertEqual({NODE1, NODE2}, set(merged['nodes']))     # ours' two nodes, unioned
@@ -908,27 +908,27 @@ class TestTheBytesAreTheToolsOwn(LedgerCase):
         reference = self.reference(kind, _decode(ours_path),
                                    self.root / 'reference' / Path(ledger).name)
         self.assertEqual(reference, written, f'{kind}: the merged bytes are not the tools\' bytes')
-        self.assertNotIn(b'\n', written.replace(b'\r\n', b''), 'not CRLF throughout')
+        self.assertNotIn(b'\r', written, 'the record carries a CR byte: the bytes are not LF throughout')
         self.assertFalse(written.endswith(b'\n'), 'a trailing newline appeared')
 
     def test_ideas_json_bytes(self):
-        self.check('ideas', '.pf/ideas.json', ideas(aaaa=node('one')),
+        self.check('ideas', '.superworker/ideas.json', ideas(aaaa=node('one')),
                    ideas(aaaa=node('one'), bbbb=node('two')),
                    ideas(aaaa=node('one', status='completed')), True)
 
     def test_state_json_bytes(self):
         shared = step(NODE1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z')
-        self.check('state', '.pf/state.json', cycle([shared]),
+        self.check('state', '.superworker/state.json', cycle([shared]),
                    cycle([shared, step(NODE2, '2026-10-01T01:00:00Z', '2026-10-01T02:00:00Z')]),
                    cycle([shared, step(NODE3, '2026-10-01T03:00:00Z', '2026-10-01T04:00:00Z')]),
                    False)
 
     def test_instructions_json_bytes(self):
-        self.check('instructions', '.pf/instructions.json', instruction(),
+        self.check('instructions', '.superworker/instructions.json', instruction(),
                    instruction(note='ours note'), instruction(text='theirs text'), False)
 
     def test_signal_bytes(self):
-        self.check('signal', f'.pf/signals/cyc/{NODE1}.json', signal('pending'),
+        self.check('signal', f'.superworker/signals/cyc/{NODE1}.json', signal('pending'),
                    signal('pending', summary='ours'), signal('completed', summary='theirs'), False)
 
 
@@ -965,7 +965,7 @@ class TestTheDoorsGiveTheWritersBytes(unittest.TestCase):
         """`ideas_bytes` and `_write`, the same; where `_write` lands is named by this call (the
         three bindings are moved into temp)."""
         data = ideas(aaaa=node('one'), bbbb=node('two'))
-        landed = self.root / 'reference' / '.pf' / 'ideas.json'
+        landed = self.root / 'reference' / '.superworker' / 'ideas.json'
         dag = self._graph()
         dag.LEDGER_DIR = landed.parent
         dag.DATA_DIR = landed.parent
@@ -1021,27 +1021,27 @@ class TestAMissingToolIsAUsageError(LedgerCase):
 
     def test_a_missing_store_with_nothing_to_write_is_a_usage_error(self):
         same = cycle([step(NODE1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z')])
-        proc = self._merge_with('.pf/state.json', 'DSH_CONDUCT_STATE_DIR', same, same, same,
+        proc = self._merge_with('.superworker/state.json', 'DSH_CONDUCT_STATE_DIR', same, same, same,
                                 env=self._nowhere('DSH_CONDUCT_STATE_DIR'))
         self.assertUsageError(proc, same)
 
     def test_a_missing_store_with_something_to_write_is_a_usage_error(self):
         base = cycle([step(NODE1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z')])
         theirs = cycle([step(NODE2, '2026-10-01T01:00:00Z', '2026-10-01T02:00:00Z')])
-        proc = self._merge_with('.pf/state.json', 'DSH_CONDUCT_STATE_DIR', base, base, theirs,
+        proc = self._merge_with('.superworker/state.json', 'DSH_CONDUCT_STATE_DIR', base, base, theirs,
                                 env=self._nowhere('DSH_CONDUCT_STATE_DIR'))
         self.assertUsageError(proc, base)
 
     def test_a_missing_graph_tool_with_nothing_to_write_is_a_usage_error(self):
         same = ideas(aaaa=node('one'))
-        proc = self._merge_with('.pf/ideas.json', 'DSH_CONDUCT_DAG_MANAGE', same, same, same,
+        proc = self._merge_with('.superworker/ideas.json', 'DSH_CONDUCT_DAG_MANAGE', same, same, same,
                                 env=self._nowhere('DSH_CONDUCT_DAG_MANAGE'))
         self.assertUsageError(proc, same)
 
     def test_a_missing_graph_tool_with_something_to_write_is_a_usage_error(self):
         base = ideas(aaaa=node('one'))
         theirs = ideas(aaaa=node('one'), cccc=node('three'))
-        proc = self._merge_with('.pf/ideas.json', 'DSH_CONDUCT_DAG_MANAGE', base, base, theirs,
+        proc = self._merge_with('.superworker/ideas.json', 'DSH_CONDUCT_DAG_MANAGE', base, base, theirs,
                                 env=self._nowhere('DSH_CONDUCT_DAG_MANAGE'))
         self.assertUsageError(proc, base)
 
@@ -1051,7 +1051,7 @@ class TestAMissingToolIsAUsageError(LedgerCase):
         base = ideas(aaaa=node('one'))
         theirs = ideas(aaaa=node('one'), cccc=node('three'))
 
-        proc = self._merge_with('.pf/ideas.json', 'DSH_CONDUCT_DAG_MANAGE', base, base, theirs)
+        proc = self._merge_with('.superworker/ideas.json', 'DSH_CONDUCT_DAG_MANAGE', base, base, theirs)
 
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertEqual({NODE1, NODE3}, set(_decode(self.side_path('ours'))['nodes']))

@@ -20,7 +20,7 @@ class WorkerSession:
     """One node's session: do the work (write a real deliverable), then run its ONE command.
 
     A node's reports live in the node's own ledger directory by convention -- nothing validates them
-    any more -- so the worker writes its deliverable under `.pf/nodes/<node>/`.
+    any more -- so the worker writes its deliverable under `.superworker/nodes/<node>/`.
     """
 
     def __init__(self, sb: Sandbox, cycle='cyc', via_handoff=False, fail_nodes=(),
@@ -38,7 +38,7 @@ class WorkerSession:
 
     def outputs_for(self, action, deliverable, node):
         return {'deliverable': deliverable,
-                'acceptance': [f'{action.get("skill") or "pf-conduct"} core acceptance points'],
+                'acceptance': [f'{action.get("skill") or "sw-conduct"} core acceptance points'],
                 'touched': [deliverable]}
 
     def work(self, action):
@@ -51,9 +51,9 @@ class WorkerSession:
         assert action['action'] in ('dispatch', 'wait'), f'not a node to work on: {action}'
         node = action.get('node_id') or self.sb.current_node(self.cycle)
         assert node, f'no node to work on: {action}'
-        skill = action.get('skill') or 'pf-conduct'
+        skill = action.get('skill') or 'sw-conduct'
         # The deliverable lives under the project so a human can go and look at it.
-        rel = '.pf/nodes/%s/%s.md' % (node, skill)
+        rel = '.superworker/nodes/%s/%s.md' % (node, skill)
         path = self.sb.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f'{skill} delivered for {node}\n', encoding='utf-8')

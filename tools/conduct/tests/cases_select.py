@@ -25,7 +25,7 @@ def _state_cycles_module():
     state-manage.py's own bootstrap and load the whole package by path, then take the loaded cycles
     submodule. Clear stale entries under the same name first, so this file's two loads stay apart.
     """
-    name = 'pf_state_for_vocab'
+    name = 'sw_state_for_vocab'
     for stale in [n for n in sys.modules if n == name or n.startswith(name + '.')]:
         del sys.modules[stale]
     pkg_dir = STATE_MANAGE.parent / 'state'
@@ -593,4 +593,4 @@ class TestNodeWeight(Base):
         sb.add_node(NODE, 'UI design', mode='auto', weight='light')
 
         self.assertEqual(self.invocation_line(sb),
-                         f'/pf-conduct {NODE} [pipeline]')
+                         f'/sw-conduct {NODE} [pipeline]')

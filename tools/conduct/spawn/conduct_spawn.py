@@ -64,7 +64,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -118,7 +118,7 @@ def argv_for(spawner, cycle_id: str, prompt_file: str | None, project, *, marker
 
     `-MarkerPath` is the broken-chain marker's full path, from `spawn/marker.py` (`marker_path`): the
     spawner writes its failures there and clears it on success, and it never assembles that path
-    itself -- `.pf` has one definition and the dispatch side must follow it, not spell it again. That
+    itself -- `.superworker` has one definition and the dispatch side must follow it, not spell it again. That
     path is all that is handed down: the record's shape has one home (`marker.py`), and the shell
     writes it in PowerShell as an exception that cannot be shared (a spawner may run where there is no
     python), with a test pinning the two implementations equal.

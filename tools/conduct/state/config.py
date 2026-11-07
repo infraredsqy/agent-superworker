@@ -14,13 +14,13 @@ Not every knob takes every layer: a core setting is how this project or this mac
 project and global layers), while a knob a plugin declares walks the whole chain. A write into a
 layer the knob does not take is refused here, naming the layers it does take. And three names are
 not settings at all -- `parallel`, `when_shelved` and `spawner` live on the line record, whose writer
-is `pf cycle policy`: this command does not know them, and saying so here is what keeps a value
+is `sw cycle policy`: this command does not know them, and saying so here is what keeps a value
 nothing reads out of a config file.
 
-The two *file* override layers are written here: the project layer (`<project>/.pf/config.json`,
-written by `init` as an empty object) and the global layer (`~/.pf/config.json`, which nobody
+The two *file* override layers are written here: the project layer (`<project>/.superworker/config.json`,
+written by `init` as an empty object) and the global layer (`~/.superworker/config.json`, which nobody
 generates for you -- `set --global` is a human really meaning to change the machine's default). The
-node layer (`<project>/.pf/nodes/<id>/config.json`) is written here too, under the same ledger lock.
+node layer (`<project>/.superworker/nodes/<id>/config.json`) is written here too, under the same ledger lock.
 The cycle layer is **not** written here: it rides on the cycle record, whose one writer is
 `state/cycles.py`, and this file delegates to that writer rather than opening a second one.
 
@@ -45,12 +45,12 @@ CONFIG_NAME = _ledger().CONFIG_NAME
 # ── the layers, and the shape of one value ─────────────────────────────────
 
 def global_config_path() -> Path:
-    """Where the global layer lands: `~/.pf/config.json` (see `knobs.global_config_path`)."""
+    """Where the global layer lands: `~/.superworker/config.json` (see `knobs.global_config_path`)."""
     return knobs.global_config_path()
 
 
 def project_config_path(project: str | None = None) -> Path:
-    """Where the project layer lands: `<project>/.pf/config.json`."""
+    """Where the project layer lands: `<project>/.superworker/config.json`."""
     return knobs.project_config_path(project)
 
 

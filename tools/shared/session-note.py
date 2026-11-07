@@ -3,10 +3,10 @@
 
 Session ids are machine-local -- a DSH session lives under `~/.dsh/sessions/` on the machine that
 opened it, a ZCode one in that host's own store -- so an id written into the shared record is a dead
-value everywhere else. Notes live under `.pf/meta/`, which `.pf/.gitignore` keeps out of both the
+value everywhere else. Notes live under `.superworker/meta/`, which `.superworker/.gitignore` keeps out of both the
 project's history and the ledger's:
 
-    .pf/meta/sessions/<node uuid>.json
+    .superworker/meta/sessions/<node uuid>.json
 
     {"v": 1,
      "discussion": [{"session": "...", "host": "dsh", "at": "..."}],
@@ -20,12 +20,12 @@ and a run for another, so the role belongs to the entry, not to the session.
 "ledger"` marks a value imported from the `dsh_session` field an older build wrote into `ideas.json`.
 
 Writers are `dag-manage.py add` (the discussion the node was routed in) and the pipeline's
-`writer.spawn_session` (every run, at spawn time); readers are `pf session show|list` and
-`pf dag info`. No single tool owns this file and there is no package to import it from: it lives in
+`writer.spawn_session` (every run, at spawn time); readers are `sw session show|list` and
+`sw dag info`. No single tool owns this file and there is no package to import it from: it lives in
 `tools/shared/`, and its callers load it by path through `loader.py`.
 
-Every write goes through the project's ledger lock (`.pf/meta/ledger.lock`, the one lock every
-writer of a `.pf/` record holds) and the tree's atomic JSON write, so two writers noting two
+Every write goes through the project's ledger lock (`.superworker/meta/ledger.lock`, the one lock every
+writer of a `.superworker/` record holds) and the tree's atomic JSON write, so two writers noting two
 sessions on one node cannot lose one another.
 """
 
@@ -46,14 +46,14 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: where `.pf/` lands and the init gate -- one source."""
+    """`tools/shared/ledger.py`: where `.superworker/` lands and the init gate -- one source."""
     return _loader().load_shared('ledger')
 
 #: The two keys a note is made of, in the order a human reads them.
@@ -88,7 +88,7 @@ def host_of_session(session: str | None) -> str:
 
 
 def note_path(project, node_id) -> Path:
-    """Where one node's note lives: `<project>/.pf/meta/sessions/<node id>.json`."""
+    """Where one node's note lives: `<project>/.superworker/meta/sessions/<node id>.json`."""
     return _ledger().meta_dir_for(project) / 'sessions' / f'{node_id}.json'
 
 
@@ -173,7 +173,7 @@ def append(project, node_id, role: str, session: str, host: str | None = None,
 
     The read and the write are one act, and this function takes the project's ledger lock for it:
     two writers noting two sessions on one node would otherwise read the same note and the later
-    write would erase the earlier entry. The lock is the one every writer of a `.pf/` record holds,
+    write would erase the earlier entry. The lock is the one every writer of a `.superworker/` record holds,
     and the write is the tree's atomic JSON write (temp file in the same directory, fsync, a replace
     that waits out a reader holding the file open): readers of a note are other processes, and a
     half-written JSON is exactly the failure the tolerant reader above hides. A caller that already

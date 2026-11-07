@@ -5,17 +5,17 @@ A plugin is a folder under the plugins directory, and the folder is its identity
 the plugin is gone, with no second place remembering it. The folder carries two files -- a
 declaration (`plugin.json`: the data, which timing it takes, which names it claims, which action it
 produces, per metric the dedupe tag and the method whose skill a session reads, the reading sources it
-claims for itself, and the commands `pf` itself hands to it) and an implementation (`impl.py`: the
+claims for itself, and the commands `sw` itself hands to it) and an implementation (`impl.py`: the
 code, called once at the timing it claimed, or run as a script by one of those commands) -- and, when
 a method it names has a skill, the skill itself under `skills/<lang>/<method>/`. The names the outside
-writes down to name one of its debts, and the words `pf` routes to it, live in that declaration, never
+writes down to name one of its debts, and the words `sw` routes to it, live in that declaration, never
 here.
 
 This module is the core's whole knowledge of plugins: the four knob kinds, the three timings, the
 two actions, the shape of a declared command, the one reading source the core serves itself plus the
 ones a declaration claims for its own, and the rules a declaration has to satisfy. No installed
 plugin's name appears here: names arrive from the declarations and are merged here for every reader
-(the writing side's validation, the candidates `--help` shows, the words `pf` routes, the ticket form,
+(the writing side's validation, the candidates `--help` shows, the words `sw` routes, the ticket form,
 the doctor).
 
 The declaration is a data file of its own because listing a plugin must not mean executing it: a
@@ -31,7 +31,7 @@ in it returns nothing from every door here (that is what "the folder was deleted
 `validate()` asks the declaration alone; `verify()` is the validator and asks both sides: the same
 declaration problems, plus the method skills the declarations name, plus the implementation function
 each claimed source says computes its number, plus one real call of every implementation against a
-stand-in project (`_StandIn`). The suite and `pf doctor` are its two callers, and nothing on the
+stand-in project (`_StandIn`). The suite and `sw doctor` are its two callers, and nothing on the
 pipeline's route is: a project in the middle of its pipeline must not be stopped by a plugin that is
 broken.
 
@@ -85,14 +85,14 @@ SOURCES_GROUP = 'sources'
 #: without executing anything, which is why it lives in the declaration and not in the implementation.
 SOURCE_BY = 'by'
 
-#: The name group a declaration claims when it brings words of its own: `pf <word>` hands the rest of
+#: The name group a declaration claims when it brings words of its own: `sw <word>` hands the rest of
 #: the line to the folder's implementation, run as a script. A command is not a timing -- it happens
 #: when a human types it, not at one of the three moments the pipeline serves -- so a plugin that
 #: carries commands and nothing else occupies no cell of the two-axis table at all, which is why
 #: `timing` and `action` are stated together or neither is (see `_problems_of`).
 COMMANDS = 'commands'
 
-#: The two cells one command states beside its word: the line `pf --help` prints, and whether the word
+#: The two cells one command states beside its word: the line `sw --help` prints, and whether the word
 #: goes along in the argv handed to the implementation. Both are defaults when the cell is absent --
 #: the word does go along, so a folder answering several commands can tell which one it was -- and a
 #: cell that is there and not of its type is a declaration problem (`_problems_of`).
@@ -123,7 +123,7 @@ SKILL_FILE = 'SKILL.md'
 
 #: The environment variable that points the scan somewhere else (a sandbox, a drill copy): the
 #: plugins directory is data, so it gets the same kind of switch every other part of the tree has.
-PLUGINS_ENV = 'PF_PLUGINS_DIR'
+PLUGINS_ENV = 'SUPERWORKER_PLUGINS_DIR'
 
 #: The two files a plugin folder holds that this module reads: the declaration, and the implementation
 #: the timing calls. A skill a metric names by its `method` is the folder's third kind of thing, and it
@@ -142,7 +142,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -158,7 +158,7 @@ _RUNTIME_PROBLEMS: dict[str, str] = {}
 # ── where the folders are ───────────────────────────────────────────────────
 
 def plugins_dir() -> Path:
-    """The directory the plugin folders live under: `<repo>/plugins`, or `PF_PLUGINS_DIR`.
+    """The directory the plugin folders live under: `<repo>/plugins`, or `SUPERWORKER_PLUGINS_DIR`.
 
     The shipped location is computed from this file's own place -- the conduct directory is one level
     up from the package this file sits in -- so a checkout that moves carries its plugins with it.
@@ -263,7 +263,7 @@ def _names(decl: dict) -> dict:
 def _one_word(value) -> bool:
     """Whether one declared value is a single token -- a command's word, or a source's name.
 
-    One token, no blanks: `pf` matches a command word against its first argv as it stands, and a
+    One token, no blanks: `sw` matches a command word against its first argv as it stands, and a
     source's name is a word of the same kind (a reading names it back verbatim), so anything a shell
     would split is not one. It also does not open with a dash: that spelling is an option, and neither
     table says anything about options.
@@ -320,7 +320,7 @@ def _declaration_problems(plugin: dict) -> list:
     timing = decl.get('timing')
     action = decl.get('action')
     # The pair is one cell: stated whole, or not at all. The one declaration that may state neither is
-    # the one that brings `pf` a word of its own -- it is asked at no moment of the pipeline -- and a
+    # the one that brings `sw` a word of its own -- it is asked at no moment of the pipeline -- and a
     # half-stated pair there would name a thing nothing ever asks for. Every other declaration occupies
     # the cell it was written for, and an absent half is named the way it always was.
     spared = bool(commands_of(plugin))
@@ -423,12 +423,12 @@ def _declaration_problems(plugin: dict) -> list:
                        f'({COMMAND_SUMMARY}, {COMMAND_KEEP_NAME})')
             continue
         if not _one_word(key):
-            out.append(f'plugin {name!r}: command {key!r} is not a word `pf` could be given (one '
+            out.append(f'plugin {name!r}: command {key!r} is not a word `sw` could be given (one '
                        f'word, no blanks, not opening with a dash)')
         summary = cell.get(COMMAND_SUMMARY)
         if not isinstance(summary, str) or not summary.strip():
             out.append(f'plugin {name!r}: command {key!r} needs a {COMMAND_SUMMARY} (the one line '
-                       f'`pf --help` prints beside the word)')
+                       f'`sw --help` prints beside the word)')
         keep = cell.get(COMMAND_KEEP_NAME)
         if keep is not None and not isinstance(keep, bool):
             out.append(f'plugin {name!r}: command {key!r} takes {COMMAND_KEEP_NAME} as true or '
@@ -689,7 +689,7 @@ def _skill_problems(plugins: list) -> list:
       loan seen from the other side, and it is what makes `~/.agents/skills/<name>` ambiguous.
 
     A skill no declaration names is not a problem either way: it is a skill the user invokes, and
-    `pf doctor` lists it with the plugin that carries it.
+    `sw doctor` lists it with the plugin that carries it.
 
     The skill belongs to the plugin, so a project with no plugin has no skill and nothing to report.
     """
@@ -787,7 +787,7 @@ def _live_call_problems(plugin: dict, decl: dict) -> list:
         return [f'plugin {name!r}: {IMPLEMENTATION} has no {door}(), so the {decl.get("action")!r} '
                 f'timing it declares can never be served']
     try:
-        with tempfile.TemporaryDirectory(prefix='pf-plugin-check-') as tmp:
+        with tempfile.TemporaryDirectory(prefix='sw-plugin-check-') as tmp:
             answer = call(_StandIn(decl, tmp))
     except (Exception, SystemExit) as e:      # noqa: BLE001 -- a plugin's door may not raise
         return [f'plugin {name!r}: {door}() raised on a stand-in project: {e!r}']
@@ -851,12 +851,12 @@ def verify() -> list:
         and it may not carry a command-shaped list in a key the core reads (`_live_call_problems`).
 
     The commands a declaration claims have no door of their own here: their shape is `validate()`'s
-    (a word, a line, whether the word goes along) and their routing is `pf`'s. Running one to see
+    (a word, a line, whether the word goes along) and their routing is `sw`'s. Running one to see
     whether it answers would mean starting a child process, which this file never does -- and so is a
     claimed source's `by`, for the same reason.
 
     Nothing here raises on a broken plugin -- a broken plugin is a sentence, not an exception. The
-    two callers are the test suite and `pf doctor`; the pipeline's route never asks: somebody's
+    two callers are the test suite and `sw doctor`; the pipeline's route never asks: somebody's
     project must not be stopped mid-run by a plugin that is broken, which is failure isolation and
     nothing about speed.
     """
@@ -962,7 +962,7 @@ def sources_of(plugin: dict) -> list:
     """The source names one plugin's declaration claims, as `{name, by}`, in declaration order.
 
     The usable claims only (`_source_cells`): a cell the doctor reports is not a source here either.
-    This is the declaration's own words, which is what `pf doctor` lists and what a reader goes
+    This is the declaration's own words, which is what `sw doctor` lists and what a reader goes
     looking for when it wants to know where one number comes from.
     """
     return [{'name': name, **cell} for name, cell in _source_cells(_decl_of(plugin) or {}).items()]
@@ -1029,7 +1029,7 @@ def _command_keep_name(cell: dict) -> bool:
 
 
 def commands_of(plugin: dict) -> list:
-    """The words one plugin claims for `pf`, in declaration order.
+    """The words one plugin claims for `sw`, in declaration order.
 
     What the declaration says, not what the router would take: a word the core already owns, or one a
     second plugin claims too, is still listed here -- both are somebody else's to report (the doctor
@@ -1077,15 +1077,15 @@ def methods() -> list:
 
 
 def commands() -> list:
-    """Every command the installed plugins contribute, as the words `pf` hands to a folder.
+    """Every command the installed plugins contribute, as the words `sw` hands to a folder.
 
     One entry per word, of a plugin whose declaration is sound (`_declaration_problems`): the word is
     the declaration's, and nothing here loads an implementation to ask whether the code behind it
     starts. Listing must not mean executing -- an import that prints, writes, reaches the network or
-    sleeps would otherwise land on every `pf` call -- so a word stays on this list even when the code
-    behind it is broken or gone, and typing that word is where it is found out: `pf` runs the folder's
+    sleeps would otherwise land on every `sw` call -- so a word stays on this list even when the code
+    behind it is broken or gone, and typing that word is where it is found out: `sw` runs the folder's
     script and names the plugin if it will not start. A declaration that cannot be read, or one with a
-    problem of its own, contributes nothing here -- there is no data to list -- and `pf doctor` is where
+    problem of its own, contributes nothing here -- there is no data to list -- and `sw doctor` is where
     it is named. In folder order then declaration order: `{name, plugin, target, keep_name, summary}`.
 
     `target` is the folder's implementation, run as a script -- a plugin is a folder with one

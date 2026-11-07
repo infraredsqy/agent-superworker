@@ -40,7 +40,7 @@ def skill_of(action):
 
     A dispatch action names the NODE it is for, not the skill: with one node per step there is
     nothing left for a skill index to disambiguate (the old per-stage table is gone). The skill is
-    still a hard contract -- the child is invoked as `/pf-conduct <node> [pipeline]` -- so it is
+    still a hard contract -- the child is invoked as `/sw-conduct <node> [pipeline]` -- so it is
     read off the first line of `prompt_text`, which is where it is promised.
     """
     first = next((line for line in (action.get('prompt_text') or '').splitlines() if line.strip()),

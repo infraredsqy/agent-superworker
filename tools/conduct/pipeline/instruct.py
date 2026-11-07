@@ -3,7 +3,7 @@
 `instruction_is_live` reads an entry's state, `entry_scope` / `scope_binding` resolve its scope,
 `instruction_in_scope` judges visibility, and `live_instructions` lists what is visible.
 
-That judgement is deliberately THE one: `state/instruct.py` -- what `pf instruction list`
+That judgement is deliberately THE one: `state/instruct.py` -- what `sw instruction list`
 runs -- loads this module by path and asks it the same question with the reader's own place, rather
 than keeping a second reading of the rule. Two judgements are how one instruction comes to be read
 two ways.

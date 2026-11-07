@@ -6,7 +6,7 @@ and a behaviour put back the old way turns it red.
 
   1. **The approval on a checkpoint line is written by a human action, and nothing else.** A
      `checkpoint` node's delivery carries `approved_at`, and putting the line back in service is the
-     human's whole answer at that gate; `pf dag approve` is the other hand that says the same thing.
+     human's whole answer at that gate; `sw dag approve` is the other hand that says the same thing.
      The guard walks the call chain from the one write site outwards and requires the two human doors
      -- and no third caller anywhere in the shipped tree.
   2. **The core names no installed plugin.** The six name groups a declaration INVENTS for itself --
@@ -20,12 +20,12 @@ and a behaviour put back the old way turns it red.
   2b. **The skills name no installed plugin either.** The same six groups may not appear in a skill
      under `skills/`: a skill bound to a plugin lives in that plugin's folder, and what a skill says
      instead is "run the command that lists what is installed".
-  3. **Every self-entry has a real door.** A word a tool's own parser registers is either a word `pf`
+  3. **Every self-entry has a real door.** A word a tool's own parser registers is either a word `sw`
      routes to it or a door another shipped module really calls (`plan` / `apply` / `record`). An
      entry that only a case drives is red: that is the shape of an exit grown to prove itself.
   4. **Every case class that drives a shipped declaration skips once that folder is gone.** The
      classes that bind a metric (`DEBT`) in the two maintenance case modules are imported twice --
-     once as the tree is, once with `PF_PLUGINS_DIR` pointed at an empty directory -- and each has to
+     once as the tree is, once with `SUPERWORKER_PLUGINS_DIR` pointed at an empty directory -- and each has to
      report itself skipped in the second. The import is where the decorator decides, so nothing is
      run: a class carrying no decorator (invisible in the ordinary run, where every folder is
      installed) and a class naming a folder this checkout does not ship are both red here.
@@ -66,7 +66,7 @@ SKILLS_ROOT = TOOLS_DIR.parent / 'skills'
 APPROVAL = 'approved_at'
 
 CONDUCT_PIPELINE = CONDUCT_DIR / 'conduct_pipeline.py'
-PF = TOOLS_DIR / 'bin' / 'pf.py'
+SW = TOOLS_DIR / 'bin' / 'sw.py'
 
 
 # ── reading the shipped sources ─────────────────────────────────────────────
@@ -149,7 +149,7 @@ class TestTheApprovalHasTwoHumanDoors(Base):
     """`approved_at` is written by the two human actions, and by nothing else.
 
     The chain is the whole guard: one write site (`approve_delivery`), the two doors that reach it
-    (`pf dag approve`'s own command, and `approve_node`, the door another tool's command comes
+    (`sw dag approve`'s own command, and `approve_node`, the door another tool's command comes
     through), and the one function that reaches that second door -- the release that puts a
     checkpoint line back in service. A third caller anywhere is the failure this rules out: a
     checkpoint gate whose signature the pipeline can write by itself is a gate that says yes.
@@ -179,7 +179,7 @@ class TestTheApprovalHasTwoHumanDoors(Base):
                              f'{writer}() is reached from somewhere else: '
                              f'{sorted(found - allowed)}')
 
-        # And the two doors really are the two human actions: `pf dag approve`'s own command, and the
+        # And the two doors really are the two human actions: `sw dag approve`'s own command, and the
         # `cycle status` route a human runs to put the line back in service.
         dag = _fresh_module('dag_parser_for_the_guard', DAG_MANAGE)._build_parser()
         verbs = next(action for action in dag._actions
@@ -324,7 +324,7 @@ class TestTheSkillsNameNoPlugin(Base):
 #: The tool entries whose own parser registers command words. `handoff.py` and `signal.py` register
 #: none -- one command each, which is the tool's whole door -- and are still asked, so a word added
 #: to one of them is caught the day it appears. A plugin's own tools are not on this list: their
-#: words are reached through the word the folder's declaration claims for `pf`, and that routing is
+#: words are reached through the word the folder's declaration claims for `sw`, and that routing is
 #: `cases_plugin.py`'s question (a folder's command, and its removal with the folder).
 ENTRIES = (CONDUCT_PIPELINE, STATE_MANAGE, DAG_MANAGE, HANDOFF_PY, SIGNAL_PY)
 
@@ -372,8 +372,8 @@ class TestEverySelfEntryHasARealDoor(Base):
 
     Two legal doors, and the argument for each:
 
-      * **`pf` routes to it** -- a verb row (`pf next` hands `next` to `state-manage.py`), a group
-        row (`pf cycle list`, `pf dag add`: the group hands the rest of the line over), or a row whose
+      * **`sw` routes to it** -- a verb row (`sw next` hands `next` to `state-manage.py`), a group
+        row (`sw cycle list`, `sw dag add`: the group hands the rest of the line over), or a row whose
         name is not one of the tool's own words, which wraps the whole parser;
       * **a shipped module really calls it.** `plan` / `apply` / `record` are `conduct_pipeline.py`'s
         own entry, and `state/nextcmd.py` and `handoff.py` call them: the allowance is written down
@@ -383,23 +383,23 @@ class TestEverySelfEntryHasARealDoor(Base):
     entry was, and it is exactly what this turns red.
     """
 
-    #: The entries with no `pf` word of their own, each reached by a shipped module instead.
+    #: The entries with no `sw` word of their own, each reached by a shipped module instead.
     INTERNAL = {CONDUCT_PIPELINE: ('plan', 'apply', 'record')}
 
     def routing_tables(self, commands: dict):
-        """`pf.py`'s two tables: `(named, wrapped)`.
+        """`sw.py`'s two tables: `(named, wrapped)`.
 
-        `named` is `{(tool path, word)}` -- what a `pf` word hands to a tool, verb rows and group rows
+        `named` is `{(tool path, word)}` -- what a `sw` word hands to a tool, verb rows and group rows
         alike. `wrapped` is the set of tools whose whole parser a group hands over (a group word that
         is not one of the tool's own words, or a verb forwarded with `keep_name` off).
         """
-        pf = _fresh_module('pf_tables_for_the_guard', PF)
+        sw = _fresh_module('sw_tables_for_the_guard', SW)
         named, wrapped = set(), set()
-        for name, target, keep_name, _blurb in pf.FORWARD_VERBS:
+        for name, target, keep_name, _blurb in sw.FORWARD_VERBS:
             named.add((target, name))
             if not keep_name:
                 wrapped.add(target)
-        for name, target, _keep_name, _blurb in pf.FORWARD_GROUPS:
+        for name, target, _keep_name, _blurb in sw.FORWARD_GROUPS:
             named.add((target, name))
             if name not in commands.get(target, set()):
                 wrapped.add(target)
@@ -428,7 +428,7 @@ class TestEverySelfEntryHasARealDoor(Base):
             for name in sorted(commands[path]):
                 if (path, name) in named or path in wrapped or name in internal:
                     continue
-                problems.append(f'{path.name}: `{name}` -- no `pf` word reaches it and no shipped '
+                problems.append(f'{path.name}: `{name}` -- no `sw` word reaches it and no shipped '
                                 f'module calls it (a door only a case drives)')
             for name in internal:
                 if name not in commands[path]:
@@ -467,7 +467,7 @@ class TestEveryMetricPassSkipsWithoutItsPlugin(Base):
     ships, and each of their pass classes binds one metric to drive it. The skip is
     `requires_plugin(...)`, and it is decided when the module is IMPORTED: the decorator asks the
     plugin scan whether the folder is there and marks the class when it is not. So both modules are
-    imported twice here -- once as the tree is, once with `PF_PLUGINS_DIR` pointed at an empty
+    imported twice here -- once as the tree is, once with `SUPERWORKER_PLUGINS_DIR` pointed at an empty
     directory -- and the classes are asked directly, with no case run and no project built.
 
     Three ways one of these classes loses its door, each one red here instead of invisible in the

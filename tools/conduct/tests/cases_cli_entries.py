@@ -69,7 +69,7 @@ class TestPipelineModuleEntries(Base):
         self.assertNotIn('commands', action, 'the preview handed the commands over')
 
     def test_apply_is_the_settle_the_worker_asked_for(self):
-        """`conduct_pipeline.py apply` is that one settle `pf next --after` performs: it reads the
+        """`conduct_pipeline.py apply` is that one settle `sw next --after` performs: it reads the
         note in the slot in hand.
 
         This entry's own help says `--after` runs it, so both entries give the same answer for the
@@ -79,7 +79,7 @@ class TestPipelineModuleEntries(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.write_signal('cyc', NODE, 'completed', 'pf-conduct finished')
+        sb.write_signal('cyc', NODE, 'completed', 'sw-conduct finished')
 
         proc = self.pipeline_cli(sb, 'apply', '--project', sb.root, '--json')
 
@@ -95,13 +95,13 @@ class TestPipelineModuleEntries(Base):
 
         Without `--after` this entry cannot read whom to settle -- more than one slot is in hand, so
         that pass reports `wait` alone and writes not one byte; named, it is the same thing as
-        `pf next --after`: one step recorded in path, the DAG marked completed.
+        `sw next --after`: one step recorded in path, the DAG marked completed.
         """
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.add_node(NODE2, 'another line', mode='auto')
         sb.start_cycle(parallel=2)
-        sb.write_signal('cyc', NODE2, 'completed', 'pf-conduct finished')
+        sb.write_signal('cyc', NODE2, 'completed', 'sw-conduct finished')
 
         blind = self.pipeline_cli(sb, 'apply', '--project', sb.root, '--json')
 
@@ -117,7 +117,7 @@ class TestPipelineModuleEntries(Base):
 
     def test_the_closing_answers_are_refused_without_a_preview(self):
         """A closing answer is refused where there is no question to settle -- the same rule as
-        `pf next`.
+        `sw next`.
 
         The refusal's reason: with no question to settle, taking the answer would make it look as if
         that word had been accepted -- the pipeline moved not one byte, yet the command reports

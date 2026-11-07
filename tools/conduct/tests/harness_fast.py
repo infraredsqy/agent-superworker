@@ -120,7 +120,7 @@ class FastStateManage:
                       '--spawn': ('spawn', False, False),
                       '--spawner': ('spawner', True, None)}),
     }
-    #: `pf cycle <verb>`: the group's verbs, in the same shape as `_SPEC`. The entry's `route`
+    #: `sw cycle <verb>`: the group's verbs, in the same shape as `_SPEC`. The entry's `route`
     #: is what answers them (keyed off `ns.cycle_command`), so this table and `_CYCLE_CALLS` are one
     #: list of the group's surface: the first is what the argv is parsed with, the second names the
     #: `cmd_*` each verb reaches.
@@ -143,7 +143,7 @@ class FastStateManage:
         'retry': (('id', 'node'), {'--summary': ('summary', True, None),
                                    '--drop': ('drop', False, False)}),
     }
-    #: `pf cycle <verb>` -> the `cmd_*` the group's own dispatch calls for it.
+    #: `sw cycle <verb>` -> the `cmd_*` the group's own dispatch calls for it.
     _CYCLE_CALLS = {
         'create': lambda mod, ns: mod.cmd_cycle_create(ns.id, ns.title, ns.force, ns.tags),
         'start': lambda mod, ns: mod.cmd_cycle_start(ns.id, ns.title, ns.force, ns.tags,
@@ -200,7 +200,7 @@ class FastStateManage:
         # is started with cwd set to the project, so the binding is right; here the module is
         # imported once and aimed at each sandbox instead. `bind_paths` is the module's own lever
         # for that, and one directory is the whole of it.
-        mod.bind_paths(self.project / '.pf')
+        mod.bind_paths(self.project / '.superworker')
 
     # ── running one command line, the way conduct_pipeline.py emits it ───────────
     def run(self, cmd, cwd=None) -> int:
@@ -326,7 +326,7 @@ class InProcessDagManage:
         if mod is None:
             mod = _fresh_module('dag_manage_fast', DAG_MANAGE)
             cls._mod = mod
-        mod.LEDGER_DIR = Path(project) / '.pf'
+        mod.LEDGER_DIR = Path(project) / '.superworker'
         mod.DATA_DIR = mod.LEDGER_DIR
         mod.NODES_DIR = mod.DATA_DIR / 'nodes'
         mod.IDEAS_JSON = mod.DATA_DIR / 'ideas.json'

@@ -2,7 +2,7 @@
 
 > 这是 `plugins/issue/` 自己的设计出处：这条度量量什么、数从哪儿来、线与标签是什么意思、这笔债
 > 怎么算还清、读不到数时怎么办。声明认领的名字（旋钮、去重标签、方法名、读数来源）不在这里抄第二
-> 份 —— 它们在 `plugin.json` 里，`pf doctor` 印得出；这里只说它们各自是什么意思。
+> 份 —— 它们在 `plugin.json` 里，`sw doctor` 印得出；这里只说它们各自是什么意思。
 
 ## 这条度量量的是什么
 
@@ -14,7 +14,7 @@
 决定，危险程度反而排到了后面。这个数因此也是维护节点的目标 —— 让加权和回到线下，条目还剩几条可以先不管。
 
 池子自己的口径（哪些状态算 actionable、哪条决定算交到了用户手里、严重度各档怎么判）不在这份里：它在
-[`../skills/zh/pf-issue-repair/pool.md`](../skills/zh/pf-issue-repair/pool.md)，量它、清它的那几份技能读的
+[`../skills/zh/sw-issue-repair/pool.md`](../skills/zh/sw-issue-repair/pool.md)，量它、清它的那几份技能读的
 是同一处。
 
 ## 数从哪儿来

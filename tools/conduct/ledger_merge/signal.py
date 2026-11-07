@@ -1,4 +1,4 @@
-"""A node's ticket under `.pf/signals/<cycle>/<node>.json` -- the file IS one record.
+"""A node's ticket under `.superworker/signals/<cycle>/<node>.json` -- the file IS one record.
 
 A ticket is ONE report: recency decides it, field by field, with a terminal status privileged.
 

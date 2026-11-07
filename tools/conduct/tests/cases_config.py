@@ -11,13 +11,13 @@ What is worth a case here, because each fails silently otherwise:
   * the whole chain resolves narrowest first, and `unset` lets the next wider layer show through
   * `set` / `unset` write exactly one layer: `--global`, `--cycle <id>` and `--node <id>` each land in
     their own store and leave the others untouched -- the cycle layer rides on the cycle record, the
-    node layer is `<project>/.pf/nodes/<id>/config.json`
+    node layer is `<project>/.superworker/nodes/<id>/config.json`
   * which layers a knob takes is its own business: a core setting takes the project and global layers
     only, while a declared knob takes all four unless its own `layers` cell names a narrower set -- a
     write anywhere else is refused, naming the layers it does take
   * the line's own policies (`parallel` / `when_shelved` / `spawner`) are not settings at all: this
     command refuses them and `list` does not claim them (they live on the line record, written by
-    `pf cycle policy`)
+    `sw cycle policy`)
   * `list` prints `key = value (layer)`; `get` prints the value alone (that one line is what a skill
     reads), and `-` when no layer states it and there is no factory value
   * a kind's boundary is refused loudly -- on the command line and off disk -- so a broken setting
@@ -27,15 +27,15 @@ What is worth a case here, because each fails silently otherwise:
   * `worktree_mode` has no constant default: it follows whether the project is a git checkout
   * a key this tool does not own survives a write untouched
   * `init` leaves a blank object at a discoverable path and never clobbers what was written into it
-  * the global layer needs no project at all, and `pf` really forwards the verb
+  * the global layer needs no project at all, and `sw` really forwards the verb
 
 The number and switch kinds have no built-in member: they arrive as a **plugin's declaration**, so
-this file installs a throwaway one under `PF_PLUGINS_DIR` rather than leaning on whatever plugins
+this file installs a throwaway one under `SUPERWORKER_PLUGINS_DIR` rather than leaning on whatever plugins
 this checkout happens to ship. The suite has to stay green with `plugins/` empty, so nothing here
 names a shipped plugin or one of its knobs.
 
-Every case points `PF_HOME_DIR` at its own sandbox: without that, a case would read (and one would
-write) the machine's real `~/.pf/config.json`. `_child_env()` inherits both variables, so the child
+Every case points `SUPERWORKER_HOME_DIR` at its own sandbox: without that, a case would read (and one would
+write) the machine's real `~/.superworker/config.json`. `_child_env()` inherits both variables, so the child
 process the CLI runs in sees the same sandbox.
 """
 
@@ -54,7 +54,7 @@ from harness import STATE_MANAGE, TOOLS_DIR, init_markers, run_argv  # noqa: E40
 
 __all__ = ['TestConfig']
 
-PF = TOOLS_DIR / 'bin' / 'pf.py'
+SW = TOOLS_DIR / 'bin' / 'sw.py'
 
 #: `list` prints `key<pad> = value (layer)`; the layer is the human label, not the key.
 LINE = re.compile(r'^(?P<key>[a-z_]+)\s+=\s+(?P<value>.+?)\s*\((?P<layer>.+?)\)$')
@@ -87,21 +87,21 @@ def _install_plugin(plugins: Path) -> None:
 class TestConfig(unittest.TestCase):
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-config-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-config-')
         self.addCleanup(tmp.cleanup)
         self.base = Path(tmp.name)
         self.root = self.base / 'proj'
         self.home = self.base / 'home'
         self.home.mkdir()
-        # What `init` writes, and the only thing that says this `.pf/` was put there on purpose:
+        # What `init` writes, and the only thing that says this `.superworker/` was put there on purpose:
         # a write into the project layer is refused without them.
         self.ledger = init_markers(self.root)
         # The two non-built-in kinds arrive from a plugin's declaration; a sandbox one keeps this
         # file independent of the plugins this checkout ships.
         self.plugins = self.base / 'plugins'
         _install_plugin(self.plugins)
-        env = mock.patch.dict(os.environ, {'PF_HOME_DIR': str(self.home),
-                                           'PF_PLUGINS_DIR': str(self.plugins)})
+        env = mock.patch.dict(os.environ, {'SUPERWORKER_HOME_DIR': str(self.home),
+                                           'SUPERWORKER_PLUGINS_DIR': str(self.plugins)})
         env.start()
         self.addCleanup(env.stop)
 
@@ -109,8 +109,8 @@ class TestConfig(unittest.TestCase):
     def state(self, *args, cwd=None):
         return run_argv([STATE_MANAGE, *args], cwd=cwd or self.root, check=False)
 
-    def pf(self, *args, cwd=None):
-        return run_argv([PF, *args], cwd=cwd or self.root, check=False)
+    def sw(self, *args, cwd=None):
+        return run_argv([SW, *args], cwd=cwd or self.root, check=False)
 
     def effective(self, *context, cwd=None):
         """`list`, read back as {key: (value, layer)} -- the tool's own answer, parsed.
@@ -210,7 +210,7 @@ class TestConfig(unittest.TestCase):
 
         accepted = self.set_('narrow_limit', '5')
         self.assertEqual(0, accepted.returncode, accepted.stderr)
-        self.assertEqual(('5', 'project .pf/config.json'), self.effective()['narrow_limit'])
+        self.assertEqual(('5', 'project .superworker/config.json'), self.effective()['narrow_limit'])
 
     def test_the_whole_chain_resolves_narrowest_first(self):
         """Four layers, one key: each write covers the wider ones, and each `unset` steps back.
@@ -222,7 +222,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(0, self.set_('sandbox_number', '5', '--global').returncode)
 
         self.assertEqual(0, self.set_('sandbox_number', '4').returncode)
-        self.assertEqual(('4', 'project .pf/config.json'), self.effective()['sandbox_number'])
+        self.assertEqual(('4', 'project .superworker/config.json'), self.effective()['sandbox_number'])
 
         self.assertEqual(0, self.state('cycle', 'create', 'c1', '--tags', 'coding').returncode)
         self.assertEqual(0, self.set_('sandbox_number', '2', '--cycle', 'c1').returncode)
@@ -235,9 +235,9 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(0, self.unset('sandbox_number', '--node', NODE).returncode)
         self.assertEqual(('2', 'cycle c1'), self.effective('--cycle', 'c1')['sandbox_number'])
         self.assertEqual(0, self.unset('sandbox_number', '--cycle', 'c1').returncode)
-        self.assertEqual(('4', 'project .pf/config.json'), self.effective()['sandbox_number'])
+        self.assertEqual(('4', 'project .superworker/config.json'), self.effective()['sandbox_number'])
         self.assertEqual(0, self.unset('sandbox_number').returncode)
-        self.assertEqual(('5', 'global ~/.pf/config.json'), self.effective()['sandbox_number'])
+        self.assertEqual(('5', 'global ~/.superworker/config.json'), self.effective()['sandbox_number'])
         self.assertEqual(0, self.unset('sandbox_number', '--global').returncode)
         self.assertEqual(('-', 'factory default'), self.effective()['sandbox_number'],
                          'a knob with no factory value steps back to "not configured"')
@@ -247,10 +247,10 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(0, self.set_('max_agents', '4').returncode)
         written = self.set_('max_agents', '5', '--global')
         self.assertEqual(0, written.returncode, written.stderr)
-        self.assertEqual({'max_agents': 5}, self.read_file(self.home / '.pf' / 'config.json'))
+        self.assertEqual({'max_agents': 5}, self.read_file(self.home / '.superworker' / 'config.json'))
         self.assertEqual({'max_agents': 4}, self.read_project(),
                          'writing the global layer must not disturb the project one')
-        self.assertIn('effective max_agents = 4 (from project .pf/config.json)', written.stdout,
+        self.assertIn('effective max_agents = 4 (from project .superworker/config.json)', written.stdout,
                       'a write that is not in force must say so, and say what is in force')
 
         self.assertEqual(0, self.set_('sandbox_number', '7', '--node', NODE).returncode)
@@ -267,7 +267,7 @@ class TestConfig(unittest.TestCase):
                          'writing the cycle layer must not open the project layer')
 
     def test_the_node_layer_is_one_nodes_own_file(self):
-        """`<project>/.pf/nodes/<id>/config.json`: a file, not a record lookup -- an id the graph does
+        """`<project>/.superworker/nodes/<id>/config.json`: a file, not a record lookup -- an id the graph does
         not know still has a layer, and it is read only when that node is named."""
         self.assertFalse((self.ledger / 'nodes' / NODE).exists())
         proc = self.set_('sandbox_number', '7', '--node', NODE)
@@ -315,7 +315,7 @@ class TestConfig(unittest.TestCase):
         values = self.effective()
         for key, value, kind in cases:
             with self.subTest(read_back=kind):
-                self.assertEqual((value, 'project .pf/config.json'), values[key])
+                self.assertEqual((value, 'project .superworker/config.json'), values[key])
         self.assertEqual({'max_agents': 4, 'test_tier': 'minimal',
                           'sandbox_number': 12.5, 'sandbox_on': 'off'}, self.read_project(),
                          'each kind is written as its own JSON shape, not as the string typed')
@@ -338,13 +338,13 @@ class TestConfig(unittest.TestCase):
 
     # ── what the CLI prints / where it writes ────────────────────────────────
     def test_the_global_layer_needs_no_project_at_all(self):
-        """The global layer travels with the person: standing somewhere with no `.pf/` should still
+        """The global layer travels with the person: standing somewhere with no `.superworker/` should still
         allow a write and a read back."""
-        self.assertFalse((self.base / '.pf').exists())
+        self.assertFalse((self.base / '.superworker').exists())
         proc = self.set_('max_agents', '4', '--global', cwd=self.base)
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertEqual('4\n', self.state('config', 'get', 'max_agents', cwd=self.base).stdout)
-        self.assertFalse((self.base / '.pf').exists(),
+        self.assertFalse((self.base / '.superworker').exists(),
                          'writing the global layer must not conjure a project ledger')
 
     def test_the_written_shape_is_a_flat_object_of_named_keys(self):
@@ -352,7 +352,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual({'test_tier': 'minimal'}, self.read_project())
 
     def test_pf_forwards_the_verb(self):
-        self.assertEqual('full\n', self.pf('config', 'get', 'test_tier').stdout)
+        self.assertEqual('full\n', self.sw('config', 'get', 'test_tier').stdout)
 
     # ── refusals ─────────────────────────────────────────────────────────────
     def test_a_value_the_kind_refuses_is_refused_before_anything_is_written(self):
@@ -422,11 +422,11 @@ class TestConfig(unittest.TestCase):
 
     def test_a_ledger_nobody_initialized_refuses_the_project_layer(self):
         raw = self.base / 'raw'
-        (raw / '.pf').mkdir(parents=True)         # the shape, none of the markers
+        (raw / '.superworker').mkdir(parents=True)         # the shape, none of the markers
         proc = self.state('config', 'set', 'test_tier', 'minimal', cwd=raw)
         self.assertNotEqual(0, proc.returncode)
         self.assertIn('init', proc.stderr, 'the refusal must hand over the command that fixes it')
-        self.assertFalse((raw / '.pf' / 'config.json').exists())
+        self.assertFalse((raw / '.superworker' / 'config.json').exists())
 
     # ── init ─────────────────────────────────────────────────────────────────
     def test_init_leaves_a_blank_object_and_never_clobbers_it(self):
@@ -434,7 +434,7 @@ class TestConfig(unittest.TestCase):
         fresh.mkdir()
         init = self.state('init', '--project', str(fresh), '--no-own-repo', cwd=fresh)
         self.assertEqual(0, init.returncode, init.stderr)
-        blank = fresh / '.pf' / 'config.json'
+        blank = fresh / '.superworker' / 'config.json'
         self.assertTrue(blank.is_file(), 'init puts the file where a reader will find it')
         self.assertEqual({}, json.loads(blank.read_text(encoding='utf-8')),
                          'blank on purpose: an empty object reads as "no overrides", while a copy '

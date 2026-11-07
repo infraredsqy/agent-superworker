@@ -5,9 +5,9 @@ What is worth a case here, and why each of them fails silently otherwise:
   * `--local` really takes the directory out of the project's repository -- through the CLONE's own
     `info/exclude`, so no teammate sees a line about a directory they do not have
   * `--commit` takes that line back out, and re-running either way does not stack a second block
-  * `--own-repo` really gives `.pf/` a repository of its own
+  * `--own-repo` really gives `.superworker/` a repository of its own
   * `init` writes the ledger's usage note, and re-running it is idempotent
-  * a `.pf/` without the two marker files is refused by every mutating command, and refused
+  * a `.superworker/` without the two marker files is refused by every mutating command, and refused
     BEFORE anything is created -- the lock's own `mkdir` is what would otherwise leave an unignored
     ledger in the tree for the next `git add -A` to sweep up
   * the markers `init` writes on disk are the ones the gate reads off the contract -- the two sides
@@ -25,7 +25,10 @@ from harness import GIT, STATE_MANAGE, git, run_argv, shared_loader  # noqa: E40
 
 __all__ = ['TestInit']
 
-MARK = '# pf working system'
+#: The one line `--local` plants in the clone's own ignore file: the record directory, anchored at
+#: the repository root, and nothing else -- no comment of this tool's, and no other project's line
+#: touched.
+LINE = '/.superworker/'
 
 
 def run_init(root: Path, *args):
@@ -53,7 +56,7 @@ class TestInit(unittest.TestCase):
         git(self.root, 'init', '-b', 'main')
 
     def excluded(self) -> bool:
-        return git(self.root, 'check-ignore', '-q', '.pf', check=False).returncode == 0
+        return git(self.root, 'check-ignore', '-q', '.superworker', check=False).returncode == 0
 
     def exclude_path(self) -> Path:
         common = git(self.root, 'rev-parse', '--git-common-dir').stdout.strip()
@@ -63,41 +66,41 @@ class TestInit(unittest.TestCase):
         proc = run_init(self.root)
         self.assertEqual(0, proc.returncode, proc.stderr)
 
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
         self.assertTrue((ledger / '.gitignore').is_file())
         self.assertTrue((ledger / '.gitattributes').is_file())
         self.assertTrue((ledger / '.git').is_dir(), 'local mode gives the ledger its own history')
         self.assertTrue(self.excluded(), 'the clone must ignore it')
-        self.assertIn(MARK, self.exclude_path().read_text(encoding='utf-8'))
+        self.assertIn(LINE, self.exclude_path().read_text(encoding='utf-8'))
         self.assertEqual('', git(self.root, 'status', '--porcelain').stdout,
-                         'an ignored `.pf/` must leave the project repository status clean')
+                         'an ignored `.superworker/` must leave the project repository status clean')
 
     def test_commit_takes_the_exclude_line_back_out(self):
         run_init(self.root)
         proc = run_init(self.root, '--commit')
         self.assertEqual(0, proc.returncode, proc.stderr)
 
-        self.assertNotIn(MARK, self.exclude_path().read_text(encoding='utf-8'))
+        self.assertNotIn(LINE, self.exclude_path().read_text(encoding='utf-8'))
         self.assertFalse(self.excluded(), 'commit mode means the project tracks it')
         # The directory itself survives the mode switch: switching is not a migration.
-        self.assertTrue((self.root / '.pf' / '.gitignore').is_file())
+        self.assertTrue((self.root / '.superworker' / '.gitignore').is_file())
 
     def test_going_local_untracks_a_directory_the_project_already_committed(self):
         """An ignore line cannot govern a file that is already tracked: the local kind must take it back
         out of the index, or the mode is lying."""
         run_init(self.root, '--commit')
-        (self.root / '.pf' / 'ideas.json').write_text('{}', encoding='utf-8')
+        (self.root / '.superworker' / 'ideas.json').write_text('{}', encoding='utf-8')
         git(self.root, 'add', '-A')
         git(self.root, 'commit', '-m', 'seed', '--no-gpg-sign')
-        self.assertTrue(git(self.root, 'ls-files', '--', '.pf').stdout.strip(),
+        self.assertTrue(git(self.root, 'ls-files', '--', '.superworker').stdout.strip(),
                         'the fixture must start out tracked')
 
         proc = run_init(self.root, '--local', '--no-own-repo')
         self.assertEqual(0, proc.returncode, proc.stderr)
 
-        self.assertEqual('', git(self.root, 'ls-files', '--', '.pf').stdout.strip(),
+        self.assertEqual('', git(self.root, 'ls-files', '--', '.superworker').stdout.strip(),
                          'local mode means the project repository lets it go')
-        self.assertTrue((self.root / '.pf' / 'ideas.json').is_file(),
+        self.assertTrue((self.root / '.superworker' / 'ideas.json').is_file(),
                         'untracking is not deleting: the files stay on disk')
         self.assertTrue(self.excluded())
 
@@ -105,17 +108,16 @@ class TestInit(unittest.TestCase):
         run_init(self.root)
         run_init(self.root)
         body = self.exclude_path().read_text(encoding='utf-8')
-        self.assertEqual(1, body.count(MARK))
-        self.assertEqual(1, body.count('/.pf/'))
+        self.assertEqual(1, body.count(LINE), 'the line is written once, not once per run')
 
     def test_no_own_repo_leaves_plain_ignored_files(self):
         proc = run_init(self.root, '--no-own-repo')
         self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertFalse((self.root / '.pf' / '.git').exists())
+        self.assertFalse((self.root / '.superworker' / '.git').exists())
         self.assertTrue(self.excluded(), 'still local, just without a history of its own')
 
     def test_a_pf_nobody_initialized_is_refused_before_anything_is_written(self):
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
         (ledger / 'nodes').mkdir(parents=True)          # the shape, none of the markers
         # The usage note is not an init marker: with only it and neither of the two marker files,
         # the directory still counts as never init-ed
@@ -133,7 +135,7 @@ class TestInit(unittest.TestCase):
         """The usage note belongs to the tool: every project init-ed on any harness must get the same
         one, and re-running is idempotent."""
         run_init(self.root)
-        note = self.root / '.pf' / 'AGENTS.md'
+        note = self.root / '.superworker' / 'AGENTS.md'
         self.assertTrue(note.is_file(), 'init writes the usage note into the ledger')
         body = note.read_text(encoding='utf-8')
         self.assertIn('To change it, ask the user first', body)
@@ -143,7 +145,7 @@ class TestInit(unittest.TestCase):
 
     def test_the_ledger_directory_a_project_commits_carries_its_own_ignores(self):
         run_init(self.root, '--commit', '--no-own-repo')
-        body = (self.root / '.pf' / '.gitignore').read_text(encoding='utf-8')
+        body = (self.root / '.superworker' / '.gitignore').read_text(encoding='utf-8')
         for name in ('meta/', 'worktrees/', 'temp/'):
             self.assertIn(name, body,
                           'the tool machinery must stay out of the project history too')
@@ -165,7 +167,7 @@ class TestInit(unittest.TestCase):
         self.assertEqual(0, proc.returncode, proc.stderr)
 
         contract = ledger_contract()
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
 
         self.assertTrue(contract.is_initialized(ledger),
                         'the gate says this directory was never init-ed: the markers `init` '

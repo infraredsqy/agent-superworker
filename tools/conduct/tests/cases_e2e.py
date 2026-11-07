@@ -47,7 +47,7 @@ class TestEndToEnd(Base):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(opening['action'], 'dispatch')
         self.assertEqual(opening['node_id'], ids[0])
-        self.assertEqual(skill_of(opening), 'pf-conduct')
+        self.assertEqual(skill_of(opening), 'sw-conduct')
 
         seen = []
         finished = None

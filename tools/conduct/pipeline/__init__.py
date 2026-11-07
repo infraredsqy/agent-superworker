@@ -6,7 +6,7 @@ the child-process seam (`_cmd` / `_dag` / `_as_text` / `_run` / `CMD_TIMEOUT` / 
 because those are what a caller patches. The machinery is here:
 
     seam.py      the live link back to the entry module's globals (see its docstring)
-    store.py     the read layer over one project's .pf/:
+    store.py     the read layer over one project's .superworker/:
                  load_state / load_signal / load_dag / load_instructions, the cycle lookups, the
                  knob resolution and the readings a ticket is asked for, `ledger_dir` / `meta_dir`
     instruct.py  the standing-instructions account and the one scope judgement ("what can be seen
@@ -54,7 +54,7 @@ __all__ = [
     'seam', 'store', 'instruct', 'nodes', 'prompts', 'insertion', 'plugin_host', 'actions',
     'planner', 'writer',
 
-    # store: the read layer, and the door to the session notes under `.pf/meta/sessions/`
+    # store: the read layer, and the door to the session notes under `.superworker/meta/sessions/`
     'ledger_dir', 'meta_dir', 'load_state', 'load_signal', 'load_dag',
     'load_instructions',
     'active_cycles', 'find_cycle', 'cycle_path',

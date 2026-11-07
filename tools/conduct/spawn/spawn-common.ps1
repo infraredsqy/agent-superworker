@@ -41,8 +41,8 @@ $script:SpawnCommonDir = $PSScriptRoot
 #: the sentence the marker writes itself -- character for character `marker.py`'s `DEFAULT_NOTE`; the
 #: equivalence case watches these two files.
 $script:SpawnMarkerNote = ('The chain broke here: this step could not start the next one, and the pipeline will not move on by ' +
-                           'itself. To take over by hand use `pf next --after <node_id>` (the closing step) or ' +
-                           '`pf dispatch <cycle>` (the dispatch step); once you have checked that nothing is wrong, ' +
+                           'itself. To take over by hand use `sw next --after <node_id>` (the closing step) or ' +
+                           '`sw dispatch <cycle>` (the dispatch step); once you have checked that nothing is wrong, ' +
                            'delete this file.')
 
 function ConvertTo-SpawnExtra {
@@ -184,7 +184,7 @@ function Write-CallbackFailureMarker {
 function Clear-CallbackFailureMarker {
     # Dispatch succeeded: clear the degradation marker left by an earlier beat (marker present =
     # the chain is broken right now; once the chain is joined again it means nothing, and keeping it
-    # only makes the next manual /pf-conduct read a long-fixed old accident).
+    # only makes the next manual /sw-conduct read a long-fixed old accident).
     # The clear also renames before deleting: marker from "there" to "not there" is one same-volume
     # rename, so a concurrent reader never catches the in-between state; if the rename fails (another
     # process is reading it) it falls back to deleting in place -- a clear that fails must not block a

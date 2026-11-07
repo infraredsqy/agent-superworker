@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""The git merge driver for the pf ledger: the argv surface git invokes.
+"""The git merge driver for the sw ledger: the argv surface git invokes.
 
     python ledger-merge.py <base> <ours> <theirs>            # git's %O %A %B
     python ledger-merge.py <base> <ours> <theirs> <path>     # ... and %P, the ledger's own path
     python ledger-merge.py --dry-run <base> <ours> <theirs> [<path>]
 
-Wired up as `merge.pf.driver`; the result is written into <ours> and git carries on. This file is the
+Wired up as `merge.superworker.driver`; the result is written into <ours> and git carries on. This file is the
 command line and nothing else -- which ledger a file is, the four engines, the conflict flags and the
 bytes each record is written with are the package next door (`ledger_merge/`, whose `__init__` carries
 the rules this driver runs on).
@@ -31,7 +31,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -60,7 +60,7 @@ def _parse(argv):
     # driver's own spelling unescaped.
     parser = argparse.ArgumentParser(
         prog='ledger-merge.py',
-        description='Three-way merge of one pf ledger file (a git merge driver: %O %A %B [%P]).')
+        description='Three-way merge of one sw ledger file (a git merge driver: %O %A %B [%P]).')
     parser.add_argument('--dry-run', action='store_true',
                         help='Print the decisions and write nothing')
     parser.add_argument('base', help="git's %%O -- the common ancestor")

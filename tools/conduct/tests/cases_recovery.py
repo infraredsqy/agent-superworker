@@ -145,13 +145,13 @@ class TestHandoff(Base):
         return sb, sb.next()
 
     def outputs(self, node=NODE):
-        return {'deliverable': '.pf/nodes/%s/pf-conduct.md' % node, 'acceptance': ['a'],
+        return {'deliverable': '.superworker/nodes/%s/sw-conduct.md' % node, 'acceptance': ['a'],
                 'touched': []}
 
     def test_it_writes_the_ticket_and_says_how_to_close_the_node(self):
         sb, first = self.started()
 
-        proc = sb.handoff('cyc', NODE, 'completed', 'pf-conduct finished', self.outputs())
+        proc = sb.handoff('cyc', NODE, 'completed', 'sw-conduct finished', self.outputs())
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('the node is not closed yet', proc.stdout)
@@ -209,7 +209,7 @@ class TestHandoff(Base):
         sb, first = self.started()
         proc = sb.handoff('cyc', NODE, 'completed', 'done', self.outputs())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertFalse((sb.root / '.pf' / 'meta' / 'CONDUCT-CALLBACK-FAILED-cyc.json').exists())
+        self.assertFalse((sb.root / '.superworker' / 'meta' / 'CONDUCT-CALLBACK-FAILED-cyc.json').exists())
 
     def test_the_ticket_write_is_the_only_thing_that_lands(self):
         """Handing in a note lands that one note and nothing else: the other slot in hand does not
@@ -230,7 +230,7 @@ class TestHandoff(Base):
         proc = sb.handoff('cyc', NODE, 'completed', 'done', self.outputs())
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        launch = sb.root / '.pf' / 'meta' / 'launch'
+        launch = sb.root / '.superworker' / 'meta' / 'launch'
         written = sorted(p.parts[-2] for p in launch.rglob('prompt.txt')) if launch.exists() else []
         self.assertEqual(written, [], 'handing in a note wrote the next prompt')
         self.assertIsNone(sb.read_signal('cyc', NODE2), 'the other slot grew a note out of nowhere')
@@ -343,7 +343,7 @@ class TestCleanTemp(Base):
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
         sb.add_temp(NODE)
-        (sb.root / '.pf' / 'state.json').write_text('{ not json', encoding='utf-8')
+        (sb.root / '.superworker' / 'state.json').write_text('{ not json', encoding='utf-8')
 
         proc = sb.clean_temp(yes=True, check=False)
 
@@ -383,8 +383,8 @@ class TestCleanTemp(Base):
         for uid in (held, target, untouched):
             sb.add_temp(uid, 'probe.txt')
         ledger = {str(path): path.read_bytes() for path in
-                  (sb.root / '.pf' / 'state.json', sb.root / '.pf' / 'ideas.json',
-                   sb.root / '.pf' / 'nodes' / target / 'spec.md')}
+                  (sb.root / '.superworker' / 'state.json', sb.root / '.superworker' / 'ideas.json',
+                   sb.root / '.superworker' / 'nodes' / target / 'spec.md')}
 
         proc = sb.clean_temp(node=target, yes=True)
 

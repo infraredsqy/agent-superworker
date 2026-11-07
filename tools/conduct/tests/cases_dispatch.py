@@ -6,7 +6,7 @@ worker that closed its node still has to commit and push its own work -- and the
 in the SAME worktree and pulls on its first line. So starting it is a separate command, run after the
 push:
 
-    next --after <node> --json     settle it, write .pf/meta/launch/<cycle>/<node>/prompt.txt
+    next --after <node> --json     settle it, write .superworker/meta/launch/<cycle>/<node>/prompt.txt
     git commit … && git push       the worker's own work
     dispatch <cycle>               start that prompt's session
 
@@ -147,7 +147,7 @@ class TestDispatchVerb(Base):
 
         self.assertNotEqual(0, proc.returncode)
         self.assertIn("no cycle named 'nope'", proc.stderr)
-        self.assertIn('pf', proc.stderr)                  # which ledger was consulted
+        self.assertIn('.superworker', proc.stderr)        # which ledger was consulted
 
     # ── it resolves the project like every other verb ────────────────────────
     def test_project_names_the_ledger_when_the_cwd_is_somewhere_else(self):
@@ -159,7 +159,7 @@ class TestDispatchVerb(Base):
 
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertTrue(same_path(action['prompt'], proc.stdout))
-        self.assertFalse((elsewhere.root / '.pf' / 'meta').exists(),
+        self.assertFalse((elsewhere.root / '.superworker' / 'meta').exists(),
                          'the other project was touched')
         self.assertIsNone(elsewhere.state(), 'the cwd project grew a ledger of its own')
 

@@ -21,11 +21,11 @@ _HOLD_THE_LOCK = '\n'.join([
     'import importlib.util, sys',
     'from pathlib import Path',
     'project, shared = Path(sys.argv[1]), Path(sys.argv[2])',
-    "spec = importlib.util.spec_from_file_location('pf_shared_loader', shared / 'loader.py')",
+    "spec = importlib.util.spec_from_file_location('sw_shared_loader', shared / 'loader.py')",
     'loader = importlib.util.module_from_spec(spec)',
     'spec.loader.exec_module(loader)',
-    "lock = loader.load_by_path('pf_shared_ledgerlock', shared / 'ledgerlock.py')",
-    "with lock.ledger_lock(project / '.pf'):",
+    "lock = loader.load_by_path('sw_shared_ledgerlock', shared / 'ledgerlock.py')",
+    "with lock.ledger_lock(project / '.superworker'):",
     "    print('held', flush=True)",
     '    sys.stdin.readline()          # the parent releases the lock by closing this line',
 ])
@@ -74,7 +74,7 @@ class TestTheLockSerialisesANote(SharedCase):
         handle."""
         sb = self.make()
         lock = _fresh_module('pf_lock_second_spelling_case', SHARED_DIR / 'ledgerlock.py')
-        taken = sb.root / '.pf'
+        taken = sb.root / '.superworker'
         other = Path(os.path.relpath(taken, Path.cwd()))
         self.assertNotEqual(str(taken), str(other), 'the two spellings have to differ to pin this')
         self.assertEqual(taken.resolve(), other.resolve(), 'the two spellings name one directory')
@@ -97,7 +97,7 @@ class TestTheLockSerialisesANote(SharedCase):
         note = _fresh_module('session_note_reentrant_case', SHARED_DIR / 'session-note.py')
 
         started = time.monotonic()
-        with lock.ledger_lock(sb.root / '.pf'):
+        with lock.ledger_lock(sb.root / '.superworker'):
             changed = note.append(sb.root, NODE, 'discussion', 'session-inside-the-lock')
 
         self.assertTrue(changed)
@@ -111,10 +111,10 @@ class TestTheLedgerContract(SharedCase):
 
     def setUp(self):
         super().setUp()
-        self.ledger = _shared('pf_shared_ledger', 'ledger.py')
+        self.ledger = _shared('sw_shared_ledger', 'ledger.py')
 
     def test_the_fixed_landing_points_sit_under_the_ledger_directory(self):
-        """The four landing places each sit in the right spot under `<project>/.pf`, and the `*_of`
+        """The four landing places each sit in the right spot under `<project>/.superworker`, and the `*_of`
         group agrees with the project group on every one of them.
 
         What this holds off: a landing place off by one slot. A mistake like `nodes/` written to
@@ -123,7 +123,7 @@ class TestTheLedgerContract(SharedCase):
         through.
         """
         project = self.root / 'a-project'
-        ledger = project / '.pf'
+        ledger = project / '.superworker'
 
         self.assertEqual(ledger, self.ledger.ledger_dir_for(project))
         self.assertEqual(ledger / 'meta', self.ledger.meta_dir_for(project))
@@ -160,7 +160,7 @@ class TestTheLedgerContract(SharedCase):
                         'both markers are there and it does not count as init-ed')
 
     def test_a_linked_worktree_root_maps_back_to_the_main_tree(self):
-        """A worktree root is a full checkout carrying a copy of `.pf/` as of the fork -- accept it
+        """A worktree root is a full checkout carrying a copy of `.superworker/` as of the fork -- accept it
         and settling lands on the stale snapshot, the two parallel lines cannot see each other's
         claims, and both commands return success.
         """
@@ -248,7 +248,7 @@ class TestTheSessionNote(SharedCase):
         self.assertTrue(note.append(self.root, NODE, 'discussion', 'dsh-session-1'))
         self.assertTrue(note.append(self.root, NODE, 'run', 'imported-session', at=None))
 
-        landed = self.root / '.pf' / 'meta' / 'sessions' / f'{NODE}.json'
+        landed = self.root / '.superworker' / 'meta' / 'sessions' / f'{NODE}.json'
         self.assertTrue(landed.is_file(), 'the note did not land in meta/sessions/<node id>.json')
         self.assertEqual({'v', 'discussion', 'run'},
                          set(json.loads(landed.read_text(encoding='utf-8'))))
@@ -272,7 +272,7 @@ class TestTheSessionNote(SharedCase):
         thing.
         """
         note = _fresh_module('pf_session_note_version_case', SHARED_DIR / 'session-note.py')
-        landed = self.root / '.pf' / 'meta' / 'sessions' / f'{NODE}.json'
+        landed = self.root / '.superworker' / 'meta' / 'sessions' / f'{NODE}.json'
         landed.parent.mkdir(parents=True, exist_ok=True)
         landed.write_text(json.dumps({'v': note.VERSION + 1,
                                       'discussion': [{'session': 'x'}], 'run': []}),

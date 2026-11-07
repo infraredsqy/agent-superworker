@@ -1,4 +1,4 @@
-# agent-pathfinder — pf: tools and skills for an agent execution pipeline
+# agent-superworker — sw: tools and skills for an agent execution pipeline
 
 > This file (AGENTS.md / CLAUDE.md) must not exceed 100 lines.
 
@@ -7,30 +7,31 @@ development discipline (the dispatch path is live ammunition).
 
 - docs/ — the contracts' one source: state and advancing, dispatch and authentication, node-tag
   filtering (read before changing conduct's behaviour)
-- skills/ — one skill tree per language, `skills/<lang>/`: the `pf-*` skills plus one copy of the
-  `shared/pf/` common cards each; `install.ps1 -Lang` picks a tree and links it into
-  `~/.agents/skills` by junction. A skill bound to a plugin is not here: it lives in that plugin's
-  own folder (`plugins/<name>/skills/<lang>/<method>/`) and is linked too, so it is
-  installed and removed with the plugin.
+- skills/ — one skill tree per language, `skills/<lang>/`: the `sw-*` skills plus one copy of the
+  `shared/superworker/` common cards each; `install.ps1 -SkillsFor zcode` picks a tree and links it
+  into `~/.agents/skills` by junction (a run without `-SkillsFor` links nothing). A skill bound to a
+  plugin is not here: it lives in that plugin's own folder
+  (`plugins/<name>/skills/<lang>/<method>/`) and is linked too, so it is installed and removed with
+  the plugin.
   Common cards are named after themselves (`philosophy.md`, `subagents.md`, `toolcraft.md`, …) —
   `AGENTS.md` / `CLAUDE.md` are host-reserved names, case-insensitive: whichever directory one
   falls into, the host injects it as instructions into every session that starts work there
-- tools/ — the `pf` command and its implementation: the `bin/` entry, the `conduct/` pipeline, the
+- tools/ — the `sw` command and its implementation: the `bin/` entry, the `conduct/` pipeline, the
   `dag/` graph, `shared/` for the pieces used across tools (libraries only, no entries). A tool a
   plugin ships is not here either: it lives in that plugin's own folder (`plugins/<name>/tools/`)
-- install.ps1 — install and self-check: link the skills, put `pf` on PATH; idempotent, re-running
-  repairs it
+- install.ps1 — install and self-check: link the skills into the host you name with `-SkillsFor`,
+  put `sw` on PATH; idempotent, re-running repairs it
 - .gitignore — the blocklist for workspace litter
 
 ## This checkout is the running tool
 
-- `pf` is on PATH and `~/.agents/skills` holds junctions into here: saving a file under `tools/` or
-  `skills/` changes what every other project's session reads, at that moment. Do that work in a
-  worktree instead (`git worktree add`), run the suite there, and merge back; the main tree stays a
-  version that works. A pipeline node already forks (`worktree_mode` defaults to `fork`) — this is
-  about a session that works here outside a node.
-- Inside a worktree, run this checkout's own entry by path (`python <worktree>\tools\bin\pf.py`):
-  the `pf` on PATH still runs the main tree's copy.
+- `sw` is on PATH, and on a ZCode install `~/.agents/skills` holds junctions into here: saving a
+  file under `tools/` or `skills/` changes what every other project's session reads, at that moment.
+  Do that work in a worktree instead (`git worktree add`), run the suite there, and merge back; the
+  main tree stays a version that works. A pipeline node already forks (`worktree_mode` defaults to
+  `fork`) — this is about a session that works here outside a node.
+- Inside a worktree, run this checkout's own entry by path (`python <worktree>\tools\bin\sw.py`):
+  the `sw` on PATH still runs the main tree's copy.
 
 ## Documentation discipline
 
@@ -58,7 +59,7 @@ development discipline (the dispatch path is live ammunition).
   skill's docs — wherever a criterion is already written, the anti-patterns do not write it a
   second time. When two skills share one criterion, it lives in one of them and the other points at
   it without copying the text.
-- **An anti-pattern entry carries a stable id**: `<skill dir name minus the pf- prefix>-<english
+- **An anti-pattern entry carries a stable id**: `<skill dir name minus the sw- prefix>-<english
   slug>`; the subagent branch is bound by role, the executor's role and the fixer's role sharing
   one book, named `conduct-execute-…` (Execute / Fix) and `conduct-review-…`. The id opens the
   heading line; adding or removing entries never renumbers and never reuses an id; entries

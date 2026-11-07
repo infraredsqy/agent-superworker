@@ -108,7 +108,7 @@ def cross_line_reason(tags, blocked: list) -> str:
             f'has {len(blocked)} ready node(s), only hidden outside by their tags:')
     tail = ('One line has finished its work; whether and when another line starts is yours to '
             'decide.\n'
-            f'Open another cycle to take it: pf '
+            f'Open another cycle to take it: sw '
             f'cycle start <slug> --tags {",".join(need)}')
     return '\n'.join([head, *tag_blocked_lines(blocked), tail])
 
@@ -308,11 +308,11 @@ def pick_node(project: Path, override: str | None = None, exclude=None, exclude_
 
 
 def node_spec_path(project: Path, node_id: str) -> str:
-    """`<project>/.pf/nodes/<id>/spec.md`, written the way a human reads it (forward slashes).
+    """`<project>/.superworker/nodes/<id>/spec.md`, written the way a human reads it (forward slashes).
 
     This is the one place this path is worked out: the generated spec reports it at the end,
     `insertion.write_spec` writes to it, and the inserted node's directory is made next to it.
-    `.pf` and the `nodes/` under it are settled by `shared/ledger.py`.
+    `.superworker` and the `nodes/` under it are settled by `shared/ledger.py`.
     """
     return (_ledger().nodes_dir_for(project) / node_id / 'spec.md').as_posix()
 

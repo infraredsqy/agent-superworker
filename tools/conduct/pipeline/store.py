@@ -1,10 +1,10 @@
-"""The read layer over one project's `.pf/`.
+"""The read layer over one project's `.superworker/`.
 
-State, signals, the DAG, the instructions and each node's own text all live in `<project>/.pf/`,
+State, signals, the DAG, the instructions and each node's own text all live in `<project>/.superworker/`,
 and they are read here. A project either commits that directory or keeps it to itself; nothing in
 
 this module cares which. The settings are read here as well, and they are the one thing on this page
-that is not this tool's own record: `pf config` owns the chain that resolves them, and what this side
+that is not this tool's own record: `sw config` owns the chain that resolves them, and what this side
 takes is its result -- one knob's effective value, or the layer it came from (the doors are at the
 bottom of this file, borrowed from `state/knobs.py`). What is not part of the record is the dispatch
 plumbing -- `meta/launch/`, the session notes, the claim/started markers, the broken-chain marker
@@ -54,14 +54,14 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: where `.pf/` lands and where those two settings files land -- one
+    """`tools/shared/ledger.py`: where `.superworker/` lands and where those two settings files land -- one
     source."""
     return _loader().load_shared('ledger')
 
@@ -98,7 +98,7 @@ def __getattr__(name: str):
 # places.
 
 _STATE_DIR = Path(__file__).resolve().parent.parent / 'state'
-_STATE_PKG = 'pf_pipeline_state_source'
+_STATE_PKG = 'sw_pipeline_state_source'
 
 
 def _state_module(name: str):
@@ -165,22 +165,22 @@ def normalize_mode(mode: str | None) -> str:
 # ── paths / read layer ───────────────────────────────────────────────────────
 
 def ledger_dir(project: Path) -> Path:
-    """`<project>/.pf/`: everything this tool writes for one project lives under it."""
+    """`<project>/.superworker/`: everything this tool writes for one project lives under it."""
     return _ledger().ledger_dir_for(project)
 
 
 def meta_dir(project: Path) -> Path:
-    """The dispatch plumbing under the ledger, `<project>/.pf/meta/`.
+    """The dispatch plumbing under the ledger, `<project>/.superworker/meta/`.
 
     Launch prompts, claim/started markers, the broken-chain marker and the session notes live here
-    -- none of them is part of the record `.pf/` keeps, which is why this is its own door.
-    `.pf/.gitignore` keeps `meta/` out of both the project's history and the ledger's own.
+    -- none of them is part of the record `.superworker/` keeps, which is why this is its own door.
+    `.superworker/.gitignore` keeps `meta/` out of both the project's history and the ledger's own.
     """
     return _ledger().meta_dir_for(project)
 
 
 # ── the settings: the knob chain, read through its one table ─────────────────
-# A project's and a machine's settings are not this pipeline's: `pf config` owns the chain that
+# A project's and a machine's settings are not this pipeline's: `sw config` owns the chain that
 # resolves them (node -> cycle -> project -> global -> factory default), and the pipeline only reads
 # cells of it. So the table and the resolution stay on the writing side (`state/knobs.py`), and this
 # side takes five doors onto them -- another copy of the kinds or of the precedence here is how "it is
@@ -191,11 +191,11 @@ def meta_dir(project: Path) -> Path:
 
 
 def global_config_path() -> Path:
-    """This machine's layer of settings, `~/.pf/config.json` -- the same one `pf config set
+    """This machine's layer of settings, `~/.superworker/config.json` -- the same one `sw config set
     --global` writes.
 
     Where it lands is given by the one source (`shared/ledger.py`'s `home_config_path`, where the
-    `PF_HOME_DIR` sandbox switch is read too): the reading side and the writing side therefore
+    `SUPERWORKER_HOME_DIR` sandbox switch is read too): the reading side and the writing side therefore
     resolve the same "home".
     """
     return _ledger().home_config_path()
@@ -248,7 +248,7 @@ def ticket_readings(project, cycle, node: str | None = None) -> list:
 
 
 # ── session notes: which conversation produced a node, which ones ran it ──────
-# `.pf/meta/sessions/<node id>.json`. Machine-local by design: a session id is only meaningful on
+# `.superworker/meta/sessions/<node id>.json`. Machine-local by design: a session id is only meaningful on
 # the machine that opened it, so it stays out of the shared record. The shape lives in
 # `tools/shared/session-note.py`.
 

@@ -1,9 +1,9 @@
 # DSH 派发与鉴权（conduct 管线用）
 
-> [`../skills/zh/pf-conduct/SKILL.md`](../skills/zh/pf-conduct/SKILL.md) 的「派发通路」一节是给会话看的那一半（谁调它、断了看哪个文件）；
+> [`../skills/zh/sw-conduct/SKILL.md`](../skills/zh/sw-conduct/SKILL.md) 的「派发通路」一节是给会话看的那一半（谁调它、断了看哪个文件）；
 > 这份放**为什么这么写**、**别怎么写** —— 供排障与搬迁时对照。实现是
 > `tools/conduct/spawn/dsh-spawn.ps1`，**唯一**拼它那份 argv 的地方是 `spawn/conduct_spawn.py`，
-> 管线（`pf next --spawn` 与 `dispatch <cycle>`）经它调用。
+> 管线（`sw next --spawn` 与 `dispatch <cycle>`）经它调用。
 >
 > **`dsh-spawn.ps1` 只开干活会话**：`-PromptFile` 必填，没有 prompt 的调用当场报错退出 —— 整条链上
 > 的每一条会话都是这样开出来的。
@@ -11,10 +11,10 @@
 ## 一、谁开这个会话
 
 `pipeline/writer.py` 的 `spawn_session()` 是管线**唯一**开会的口：它经 `spawn/conduct_spawn.py`
-调 `dsh-spawn.ps1`，把 `dispatch` 动作写下的那份 prompt 发出去。入口是 `pf next --spawn`——干活会话收尾
+调 `dsh-spawn.ps1`，把 `dispatch` 动作写下的那份 prompt 发出去。入口是 `sw next --spawn`——干活会话收尾
 时那一条；`--plan` 是只读预览，绝不 spawn。技能自跑的链（`spawn/chain-spawn.py`）自己只是一个 CLI 壳，
 开会话那一步同样落在这道入口上：会话交接单、标记的写与清都由它带着。**claim 那一条它拿不到**：claim 只认领
-落在 launch 目录里的那份 prompt，而技能自跑的链把 prompt 放在自己那一层（`.pf/repair/chain/…`）下——
+落在 launch 目录里的那份 prompt，而技能自跑的链把 prompt 放在自己那一层（`.superworker/repair/chain/…`）下——
 同一个 prompt 文件被同时交出去两次时没有互斥，这个缺口还开着。
 conductor 自己不手敲 API：`commands` 一律由工具跑，调用方只读 `action`。
 
@@ -59,13 +59,13 @@ cookie 与 `dsh web` 自己发的那一枚同形（有效期同 `cookieMaxAgeDay
   spawn 成功时清除。标记存在 = 这条链现在是断的，人工接管的走法见
   [`./conduct-state.md`](./conduct-state.md)「恢复」。
 - **标记的记录形状与落点有一处正本**（`spawn/marker.py`）：算路径的是它，`conduct_spawn.argv_for` 把结果
-  作为参数交给 spawner，spawner 不自拼 `.pf/meta` 那条路——名字一改，自拼的地方会安静地写到工具不读的
+  作为参数交给 spawner，spawner 不自拼 `.superworker/meta` 那条路——名字一改，自拼的地方会安静地写到工具不读的
   位置。python 侧那份写入走全树那条原子写（临时文件 + 同卷改名 + 对「读方此刻正开着目标文件」的重试）；
   spawner 那一层是**物理上无法共享的例外**：它的运行点可能没有 python，所以它按同一份形状自己写，两份
   实现的一致性由 `conduct/tests/cases_spawn_shell.py` 的等价性用例钉住。这条写入恰恰是不许丢的那条。
 - 排查顺序：401 看 cookie 与凭据文件；404 看方法名是不是点号写法；`result.ok=false` 看
   `result.error`；会话建了但 GUI 里在"未分组"，看是不是错传了 `cwd`。改鉴权路径时务必端到端验
-  一次（用一个自检 cycle id 跑通"新会话建立 → prompt 注入 → `/pf-conduct` 被加载"）。
+  一次（用一个自检 cycle id 跑通"新会话建立 → prompt 注入 → `/sw-conduct` 被加载"）。
 
 ## ZCode 那一份 spawner
 

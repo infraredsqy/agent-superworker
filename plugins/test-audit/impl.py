@@ -215,7 +215,7 @@ def _offer(ctx, cycle: dict, hit: dict) -> dict:
             f'and the inserted node is not pinned: which node the next dispatch picks is the usual '
             f'ranking\'s call (on a line that fills several slots, this same close may have pinned '
             f'the rest of its fill). After committing and pushing: '
-            f'`pf next --cycle {cycle.get("id")} --spawn --json`.')
+            f'`sw next --cycle {cycle.get("id")} --spawn --json`.')
     return {
         'title': hit['title'],
         'tags': [hit['tag'], *_line_tags(cycle)],
@@ -293,7 +293,7 @@ def spec(hit: dict, spec_path: str) -> str:
         '\n'
         '## Closing out\n'
         '\n'
-        'Follow the "closing out" section of pf-conduct: get a freshly printed note form, then '
+        'Follow the "closing out" section of sw-conduct: get a freshly printed note form, then '
         'write the note -> close -> commit and push -> dispatch.\n'
         + _closing_reading(hit) +
         f'\n(this spec lands at: {spec_path})\n'

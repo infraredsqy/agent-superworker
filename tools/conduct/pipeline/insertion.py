@@ -163,7 +163,7 @@ def write_spec(project, node_id: str, spec: str) -> Path:
                            f'{node_id!r}')
     path = Path(node_spec_path(project, node_id))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(spec, encoding='utf-8')
+    path.write_text(spec, encoding='utf-8', newline='\n')
     return path
 
 

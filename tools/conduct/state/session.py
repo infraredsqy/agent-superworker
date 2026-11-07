@@ -3,7 +3,7 @@
 A session id is machine-local -- a conversation lives on the machine that opened it -- so the ids do
 not ride on the record: an id in a shared JSON is a value that is guaranteed dead on every other
 machine, and one that cannot even be told apart from "that session was deleted here". They live in
-`.pf/meta/sessions/<node id>.json`, which `.pf/.gitignore` keeps out of both histories. The shape,
+`.superworker/meta/sessions/<node id>.json`, which `.superworker/.gitignore` keeps out of both histories. The shape,
 and why it is two named lists rather than one list with a role field, are in
 `tools/shared/session-note.py`.
 
@@ -38,7 +38,7 @@ LEDGER_SOURCE = 'ledger'
 
 
 def _root(project) -> Path:
-    """The project root: the `.pf/` every command here is resolved through is `<root>/.pf`."""
+    """The project root: the `.superworker/` every command here is resolved through is `<root>/.superworker`."""
     return ledger_dir_for(project).parent
 
 

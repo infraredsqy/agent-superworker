@@ -25,7 +25,7 @@ class TestTheReaderAndWriter(SharedCase):
         first run go red over a perfectly normal absent record, while the genuinely corrupt ones
         drown in that false alarm.
         """
-        jsonio = _shared('pf_shared_jsonio', 'jsonio.py')
+        jsonio = _shared('sw_shared_jsonio', 'jsonio.py')
 
         self.assertIsNone(jsonio.read_json_strict(self.root / 'nothing.json', 'nothing.json'))
 
@@ -37,7 +37,7 @@ class TestTheReaderAndWriter(SharedCase):
         record with the wrong encoding and reading one with broken syntax look exactly alike, and a
         human can no longer tell whether to fix the file or fix the tool.
         """
-        jsonio = _shared('pf_shared_jsonio', 'jsonio.py')
+        jsonio = _shared('sw_shared_jsonio', 'jsonio.py')
         not_utf8_path = self.root / 'bytes.json'
         not_utf8_path.write_bytes(b'\xff\xfe not utf-8 at all')
         not_json_path = self.root / 'text.json'
@@ -53,26 +53,24 @@ class TestTheReaderAndWriter(SharedCase):
 
     def test_one_records_bytes_are_the_bytes_that_land_on_disk(self):
         """`json_bytes`'s shape is byte for byte what `atomic_write_json` lands: indent two spaces,
-        non-ASCII text passed through as it is, the `sort_keys` switch, the platform line separator,
-        no trailing newline.
+        non-ASCII text passed through as it is, the `sort_keys` switch, LF on every platform, no
+        trailing newline.
 
         What this holds off: the merge driver's one dependency. It reads these bytes to decide
         whether a write would change the file, so one byte too many or too few makes every merge
         look like a change and every node's close out writes the file once more; escaping the
         non-ASCII text would stop the record being the copy a human can read directly.
         """
-        jsonio = _shared('pf_shared_jsonio', 'jsonio.py')
+        jsonio = _shared('sw_shared_jsonio', 'jsonio.py')
         record = {'title': 'Café billing page', 'z': 1, 'a': [1, 2]}
-        separator = os.linesep.encode('utf-8')
 
         payload = jsonio.json_bytes(record, sort_keys=True)
 
         self.assertEqual(record, json.loads(payload.decode('utf-8')))
         self.assertIn('Café'.encode('utf-8'), payload, 'the non-ASCII text was escaped')
-        self.assertTrue(payload.split(separator)[1].startswith(b'  "'),
+        self.assertTrue(payload.split(b'\n')[1].startswith(b'  "'),
                         'the indent is not two spaces')
-        self.assertNotIn(b'\n', payload.replace(separator, b''),
-                         'the newline is not the platform one')
+        self.assertNotIn(b'\r', payload, 'the newline is not LF: a record carries no CR byte')
         self.assertFalse(payload.endswith(b'\n'), 'the record has one newline too many at the end')
         self.assertLess(payload.index(b'"a"'), payload.index(b'"z"'),
                         'sort_keys did not take effect')
@@ -88,8 +86,8 @@ class TestTheReaderAndWriter(SharedCase):
 
     def test_a_write_a_reader_never_lets_go_fails_bounded_and_leaves_no_temp(self):
         sb = self.make()
-        jsonio = _shared('pf_shared_jsonio', 'jsonio.py')
-        target = sb.root / '.pf' / 'meta' / 'held.json'
+        jsonio = _shared('sw_shared_jsonio', 'jsonio.py')
+        target = sb.root / '.superworker' / 'meta' / 'held.json'
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('{"stale": true}', encoding='utf-8')
         held = open(target, 'r', encoding='utf-8')
@@ -119,7 +117,7 @@ class TestTheClockShapes(SharedCase):
         normal, while values already on disk stop parsing -- the drift shows only on the reading
         side, and only some time later.
         """
-        clock = _shared('pf_shared_clock', 'clock.py')
+        clock = _shared('sw_shared_clock', 'clock.py')
 
         micro = clock.now()
         seconds = clock.now_seconds()
@@ -141,7 +139,7 @@ class TestTheClockShapes(SharedCase):
         run, only hours off -- the order in which parallel claims were made silently comes out
         reversed.
         """
-        clock = _shared('pf_shared_clock', 'clock.py')
+        clock = _shared('sw_shared_clock', 'clock.py')
 
         for shape, read in ((clock.ISO_FMT, clock.now),
                             (clock.ISO_FMT_SECONDS, clock.now_seconds)):

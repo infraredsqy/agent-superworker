@@ -1,11 +1,11 @@
 """Data access layer: paths, constants, low-level IO for the issue manager.
 
-The pool lives with everything else this project's pipeline records, under `.pf/issues/`, so it
+The pool lives with everything else this project's pipeline records, under `.superworker/issues/`, so it
 survives a wiped `temp/` and travels wherever the project's work travels. A project either commits
-its `.pf/` or keeps that directory to itself; either way the pool is read and written the same.
+its `.superworker/` or keeps that directory to itself; either way the pool is read and written the same.
 
 The read, the write and the lock are the shared ones (`tools/shared/`), so this file's records are
-read and written exactly like the conduct side's. `.pf/` itself, the worktree judgement and the init
+read and written exactly like the conduct side's. `.superworker/` itself, the worktree judgement and the init
 gate come from `tools/shared/ledger.py`, the one place they are spelled.
 """
 
@@ -29,14 +29,14 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: where `.pf/` lands, the worktree-to-main-tree rule, the init gate
+    """`tools/shared/ledger.py`: where `.superworker/` lands, the worktree-to-main-tree rule, the init gate
     -- one source."""
     return _loader().load_shared('ledger')
 
@@ -57,7 +57,7 @@ ISSUES_JSON = None
 
 
 def configure(project_root) -> None:
-    """Pin the ledger to one project: `<root>/.pf/issues/`, with its `issues.json` under it.
+    """Pin the ledger to one project: `<root>/.superworker/issues/`, with its `issues.json` under it.
 
     This is the door paths enter this module through: the CLI calls it once from cwd inside `main()`,
     and in-process callers name the project themselves.
@@ -141,15 +141,15 @@ def _write(data: dict) -> None:
 # ── the cross-process ledger lock ─────────────────────────────────────────────
 # issues.json is whole-file read-modify-write; two processes writing at once means the later write
 # erases the earlier entry. Every mutating command holds the project's one lock across its read →
-# write -- the same `.pf/meta/ledger.lock` file conduct, dag-manage and a session note's own writer
+# write -- the same `.superworker/meta/ledger.lock` file conduct, dag-manage and a session note's own writer
 # use, so all of their writes exclude each other.
 
 
 def _require_initialized() -> None:
-    """A `.pf/` nobody init'ed may hold no write at all: the lock's `mkdir` is the one thing that
+    """A `.superworker/` nobody init'ed may hold no write at all: the lock's `mkdir` is the one thing that
     would conjure it.
 
-    It reads `DATA_DIR.parent` (that is, `.pf/`), and `configure()` named `DATA_DIR`; the judgement
+    It reads `DATA_DIR.parent` (that is, `.superworker/`), and `configure()` named `DATA_DIR`; the judgement
     and the one sentence a refused write is told live in `tools/shared/ledger.py`.
     """
     ledger = DATA_DIR.parent

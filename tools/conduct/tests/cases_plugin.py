@@ -10,7 +10,7 @@ What this file pins, in the order the criteria are stated:
 
   * **the registry**: what is installed, which names it merges (knobs, dedupe tags, methods, ticket
     readings, command words), and that the core's own files name none of them;
-  * **a fake second plugin**: a hand-written folder plugs in through `PF_PLUGINS_DIR` with the core
+  * **a fake second plugin**: a hand-written folder plugs in through `SUPERWORKER_PLUGINS_DIR` with the core
     untouched -- and an ill-formed or duplicated declaration is reported by `validate()` while the
     runtime skips it;
   * **a source a plugin claims**: a reading may draw on a source its own declaration claims, whose
@@ -18,7 +18,7 @@ What this file pins, in the order the criteria are stated:
     through the reading door, the note's value is not consulted, and the core names no other source;
     a source nobody claims, and one the core already serves, are the validator's to report;
   * **the command face**: a folder may carry words instead of a timing -- `commands()` is where they
-    are merged for `pf`, a declaration that cannot be read contributes none of them, a folder whose
+    are merged for `sw`, a declaration that cannot be read contributes none of them, a folder whose
     code will not start keeps its word there (the word is the declaration's, and the failure is named
     when the word is typed), and removing the folder removes them;
   * **the deleted folder**: with no plugin installed at all the pipeline still closes and still
@@ -26,7 +26,7 @@ What this file pins, in the order the criteria are stated:
     reading asked on the form);
   * **the dispatch gate**: a `block` plugin at `dispatch` stops a session from opening -- on every
     road that would pin a new node (`next`'s pick and `next --after`'s close) and on the standalone
-    `pf dispatch` verb -- with `stop_pipeline`, no pin, no prompt and the line left in service (a
+    `sw dispatch` verb -- with `stop_pipeline`, no pin, no prompt and the line left in service (a
     refused close still settles the node it was closing);
   * **the pick timing**: an `insert` plugin may also act at a pick, where its node enters the graph
     in front of the node the ranking chose; it pins nothing, writes no prompt and opens no session,
@@ -58,8 +58,8 @@ from cases_maintenance import POOL, TICKET  # noqa: E402
 from harness import (HANDOFF_PY, STATE_MANAGE, TOOLS_DIR, _run_proc, plugins_dir,  # noqa: E402
                      patched, requires_plugin, shipped_sources, write_plugin, write_skill)
 
-#: The shipped `pf` entry: one real doctor run is the door this file checks the claimed source on.
-PF = TOOLS_DIR / 'bin' / 'pf.py'
+#: The shipped `sw` entry: one real doctor run is the door this file checks the claimed source on.
+SW = TOOLS_DIR / 'bin' / 'sw.py'
 
 __all__ = ['TestTheRegistry', 'TestASourceAPluginClaims', 'TestTheDeletedPluginFolder',
            'TestTheDispatchGate', 'TestThePickTiming', 'TestABrokenOfferIsContained',
@@ -300,7 +300,7 @@ def claimed_decl(name='feed', source=CLAIMED_SOURCE, by=CLAIMED_BY, **extra):
         'sources': {source: {'by': by}},
         'readings': {'feed_score': {'source': source}},
         'metrics': {'feed_score': {'line': 'feed_limit', 'tag': 'feed:open',
-                                   'method': 'pf-feed'}},
+                                   'method': 'sw-feed'}},
     }
     decl.update(extra)
     return decl
@@ -464,7 +464,7 @@ class TestTheRegistry(PluginBase):
             'readings': {'audit_score': {'source': 'ticket', 'when_knob': 'audit_limit',
                                          'ask': 'how many audit findings are still open'}},
             'metrics': {'audit_score': {'line': 'audit_limit', 'tag': 'audit:open',
-                                        'method': 'pf-audit'}},
+                                        'method': 'sw-audit'}},
         }, insert_impl('audit:open'))
 
         registry = pipeline.registry()
@@ -473,7 +473,7 @@ class TestTheRegistry(PluginBase):
         self.assertEqual(registry.knob_specs()['audit_limit']['kind'], 'number')
         self.assertEqual(registry.knob_specs()['audit_limit']['plugin'], 'audit')
         self.assertEqual(registry.dedupe_tags(), ['audit:open'])
-        self.assertEqual(registry.methods(), ['pf-audit'])
+        self.assertEqual(registry.methods(), ['sw-audit'])
         self.assertEqual(['audit_score'], [reading['key'] for reading in registry.readings()])
         self.assertIn('audit_limit', pipeline.knob_specs(),
                       'the declaration did not reach the merged knob table')
@@ -569,7 +569,7 @@ class TestTheRegistry(PluginBase):
             'readings': {'audit_score': {'source': 'ticket', 'when_knob': 'audit_limit',
                                          'ask': 'how many audit findings are still open'}},
             'metrics': {'audit_score': {'line': 'audit_limit', 'tag': 'audit:open',
-                                        'method': 'pf-audit'}},
+                                        'method': 'sw-audit'}},
         }, JUDGE_IMPL)
         self.assertEqual(10, pipeline.resolve_knob(sb.root, 'audit_limit', cycle=sb.cycle()),
                          'the declaration\'s default is not the effective value')
@@ -607,7 +607,7 @@ class TestTheRegistry(PluginBase):
         asked at no timing of the pipeline -- only a declaration that brings none has to occupy a cell.
 
         The whole declaration is one command and a summary -- no timing, no action, no metric -- which
-        is the smallest plugin `pf <word>` can be handed to.
+        is the smallest plugin `sw <word>` can be handed to.
         """
         root = self.plugins()
         folder = write_plugin(root, 'probe', {
@@ -661,7 +661,7 @@ class TestTheRegistry(PluginBase):
     def test_an_implementation_that_cannot_load_still_carries_its_word(self):
         """The word is the declaration's, and `commands()` reads declarations only: code that cannot be
         loaded keeps its word on the list, while the validator still names the plugin and says the code
-        is what broke -- typing the word is where `pf` finds that out.
+        is what broke -- typing the word is where `sw` finds that out.
         """
         root = self.plugins()
         write_plugin(root, 'syntax', {
@@ -724,7 +724,7 @@ class TestASourceAPluginClaims(PluginBase):
         folder = write_plugin(root, name, decl if decl is not None else claimed_decl(name=name),
                               impl if impl is not None else claimed_impl())
         if skill:
-            write_skill(folder, 'pf-feed')
+            write_skill(folder, 'sw-feed')
         return folder, root
 
     def test_a_claimed_source_passes_the_doctor_and_reaches_the_close(self):
@@ -752,7 +752,7 @@ class TestASourceAPluginClaims(PluginBase):
         made = action['node_id']
         self.assertIn('feed 5', sb.dag()['nodes'][made]['title'],
                       f'the number came from somewhere else: {sb.dag()["nodes"][made]["title"]}')
-        spec = (sb.root / '.pf' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
+        spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         self.assertIn('feed 5', spec, 'the generated spec missed the number its source computed')
 
     def test_pf_doctor_lists_the_claim_and_passes(self):
@@ -760,9 +760,9 @@ class TestASourceAPluginClaims(PluginBase):
         computes it, and this checkout has nothing to report about the fixture."""
         self.one()
         sb = self.finished_head()
-        (sb.root / '.pf' / 'AGENTS.md').write_text('# fixture\n', encoding='utf-8')
+        (sb.root / '.superworker' / 'AGENTS.md').write_text('# fixture\n', encoding='utf-8')
 
-        proc = _run_proc(sb.root, [PF, 'doctor'], check=False)
+        proc = _run_proc(sb.root, [SW, 'doctor'], check=False)
 
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn('sources:', proc.stdout)
@@ -870,7 +870,7 @@ class TestASourceAPluginClaims(PluginBase):
         self.one(decl=claimed_decl(readings={'feed_score': {'source': CLAIMED_SOURCE},
                                              'note_score': {'source': 'ticket'}},
                                    metrics={'feed_score': {'line': 'feed_limit', 'tag': 'feed:open',
-                                                           'method': 'pf-feed'}}),
+                                                           'method': 'sw-feed'}}),
                  impl=DECISION_SOURCE_IMPL % {'by': CLAIMED_BY})
         sb = self.finished_head(reading={'feed_score': 99, 'note_score': 7})
         ctx = pipeline.Context(sb.root, cycle=sb.cycle(), node_id=NODE,
@@ -916,7 +916,7 @@ class TestTheDeletedPluginFolder(PluginBase):
         self.assertEqual(2, len(sb.dag()['nodes']), 'a node was inserted with no plugin installed')
         self.assertEqual(sb.path_nodes(), [NODE])
         self.assertEqual([NODE2], sb.holding_ids())
-        self.assertTrue((sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / NODE2 / 'prompt.txt')
+        self.assertTrue((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE2 / 'prompt.txt')
                         .is_file(), 'the close did not write the next prompt')
 
     def test_the_close_is_byte_for_byte_the_control(self):
@@ -941,7 +941,7 @@ class TestTheDeletedPluginFolder(PluginBase):
 
         self.assertEqual(normalise(control.close_round(NODE)),
                          normalise(carrying.close_round(NODE)))
-        for rel in ('.pf/ideas.json', '.pf/state.json'):
+        for rel in ('.superworker/ideas.json', '.superworker/state.json'):
             self.assertEqual(walked(json.loads(control.tree_contents()[rel])),
                              walked(json.loads(carrying.tree_contents()[rel])),
                              f'{rel} changed because a threshold is in the ledger')
@@ -999,7 +999,7 @@ class TestTheDispatchGate(PluginBase):
         self.assertIn('the fixture gate says not now', action['reason'])
         self.assertEqual('active', sb.cycle()['status'], 'a gate parked the line')
         self.assertEqual([NODE], sb.holding_ids(), 'the line lost the node it was holding')
-        self.assertFalse((sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / NODE
+        self.assertFalse((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE
                           / 'prompt.txt').exists(), 'a refused dispatch wrote a prompt')
         # the next step asks again, and nothing was consumed by the first answer
         self.assertEqual('stop_pipeline', sb.plan()['action'])
@@ -1010,7 +1010,7 @@ class TestTheDispatchGate(PluginBase):
         The refusal settles the node all the same -- a gate says nothing about a close -- but it
         pins nobody and writes no prompt, and the line stays in service. So the successor is not
         lost: the step after the close dispatches it once the gate is satisfied, and while the gate
-        refuses, `pf cycle current` shows an empty hand rather than a held node nobody was told
+        refuses, `sw cycle current` shows an empty hand rather than a held node nobody was told
         about (the bug this pins: the pin used to land before the gate was asked).
         """
         sb = self.finished_head()
@@ -1036,7 +1036,7 @@ class TestTheDispatchGate(PluginBase):
         self.assertEqual([], sb.holding_ids(), 'a refused close-driven dispatch pinned a node')
         self.assertEqual('active', sb.cycle()['status'], 'a refused close-driven dispatch parked '
                                                          'the line')
-        launch = sb.root / '.pf' / 'meta' / 'launch' / 'cyc'
+        launch = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc'
         self.assertFalse((launch / NODE2 / 'prompt.txt').exists(),
                          'a refused close-driven dispatch wrote the successor\'s prompt')
 
@@ -1066,15 +1066,15 @@ class TestTheDispatchGate(PluginBase):
         self.assertEqual(NODE, action['node_id'])
 
     def test_pf_dispatch_consults_the_same_gate(self):
-        """The standalone `pf dispatch <cycle>` verb is a dispatch: the gate answers there too.
+        """The standalone `sw dispatch <cycle>` verb is a dispatch: the gate answers there too.
 
-        Without it, `pf dispatch` would be the way around a gate -- the same session the `next` path
+        Without it, `sw dispatch` would be the way around a gate -- the same session the `next` path
         refused would open one command later. The refusal writes nothing and opens nothing, and the
         prompt the last close wrote is still sitting there for a retry once the gate is satisfied.
         """
         sb = self.coding_line()
         sb.next()                                  # pins NODE and writes its prompt (no gate yet)
-        prompt = sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / NODE / 'prompt.txt'
+        prompt = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE / 'prompt.txt'
         self.assertTrue(prompt.is_file(), 'the fixture has no prompt to start')
         write_plugin(self.plugins(), 'gate', block_decl(), BLOCK_IMPL)
 
@@ -1152,7 +1152,7 @@ class TestThePickTiming(PluginBase):
         self.assertIn(FIXTURE_TAG, nodes[made[0]]['tags'])
         self.assertIn('coding', nodes[made[0]]['tags'],
                       'a node outside the line\'s filter set is invisible to that line\'s pick')
-        self.assertTrue((sb.root / '.pf' / 'nodes' / made[0] / 'spec.md').is_file())
+        self.assertTrue((sb.root / '.superworker' / 'nodes' / made[0] / 'spec.md').is_file())
 
         # the step after the insertion dispatches the node the pick had chosen; the inserted node is
         # in that same ranking, and it is the top row once that node is closed
@@ -1238,7 +1238,7 @@ class TestABrokenOfferIsContained(PluginBase):
         self.assertEqual(2, len(sb.dag()['nodes']), 'the skipped offer edited the graph anyway')
         self.assertEqual([NODE], sb.path_nodes(), 'the node was not closed')
         self.assertEqual([NODE2], sb.holding_ids())
-        self.assertTrue((sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / NODE2
+        self.assertTrue((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE2
                          / 'prompt.txt').is_file(), 'the close did not ask for the next session')
         lines = [line for line in err.getvalue().splitlines() if line.startswith('WARNING:')]
         self.assertEqual(1, len(lines), f'the plugin did not get exactly one warning: {lines}')
@@ -1285,7 +1285,7 @@ class TestABrokenOfferIsContained(PluginBase):
         made = action['node_id']
         nodes = sb.dag()['nodes']
         self.assertEqual(3, len(nodes), f'the node was not inserted: {action}')
-        spec = (sb.root / '.pf' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
+        spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         self.assertIn(made, spec, 'the spec was not rewritten with the minted uuid')
         self.assertNotIn('%DUID%', spec, 'the spec still carries the placeholder')
 

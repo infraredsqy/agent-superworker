@@ -233,7 +233,7 @@ class TestParallelSlots(Base):
         sb.set_current_node(NODE)
         sb.set_current_node(NODE2)
         sb.next()
-        launch = sb.root / '.pf' / 'meta' / 'launch' / 'cyc'
+        launch = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc'
 
         _opened, opened = sb.spawn_next('--cycle', 'cyc', spawner=self.stub(sb), dry_run=False)
         self.assertEqual(opened.returncode, 0, opened.stderr)
@@ -296,7 +296,7 @@ class TestParallelSlots(Base):
         _action, opened = sb.spawn_next(spawner=self.stub(sb), dry_run=False)
         self.assertEqual(opened.returncode, 0, opened.stderr)
         for node in (NODE, NODE2):
-            self.assertFalse((sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / node
+            self.assertFalse((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / node
                               / 'SPAWN.claim').exists(),
                              f'{node}: a started session must drop its launch dir')
 

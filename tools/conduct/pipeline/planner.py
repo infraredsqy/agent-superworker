@@ -89,7 +89,7 @@ def plan(project, cycle_id: str | None = None, decision: str | None = None,
     if cycle.get('status') != 'active' and not self_verified:
         return _ask(f'cycle {cycle["id"]!r} exists but is not active ({cycle.get("status")})',
                     requested=cycle['id'], candidates=[cycle['id']],
-                    hint=f'pf cycle status {cycle["id"]} active')
+                    hint=f'sw cycle status {cycle["id"]} active')
 
     tags = cycle.get('tags') or []
     holding = _holding_ids(cycle)
@@ -166,10 +166,10 @@ def _no_line(state: dict) -> dict:
         only = idle[0]
         return _ask(f'no cycle is active; {only!r} is out of service (inactive)',
                     requested=only, candidates=idle, known_cycles=idle,
-                    hint=f'pf cycle status {only} active')
+                    hint=f'sw cycle status {only} active')
     return _ask(f'no cycle is active right now; these lines are all out of service: {idle}',
                 candidates=idle, known_cycles=idle,
-                hint='pf cycle status <cycle> active')
+                hint='sw cycle status <cycle> active')
 
 
 def _pick_next(project: Path, cycle: dict, tags) -> dict:
@@ -356,7 +356,7 @@ def _close_own_node(project: Path, cycle: dict, node_id: str, sig: dict,
                   f'node and dispatches nothing; the line keeps the status it was given.')
         if spoken_name:
             reason += f' The named node {spoken_name} was not opened.'
-        reason += f' To carry on: pf cycle status {cycle["id"]} active'
+        reason += f' To carry on: sw cycle status {cycle["id"]} active'
         cmds = _close_commands(project, cycle, node_id, outcome, 'stop', None, park=False)
         return _stop_action(project, cycle, reason, cmds, node_id=node_id, shelved_nodes=shelved,
                             dag=dag)
@@ -379,8 +379,8 @@ def _close_own_node(project: Path, cycle: dict, node_id: str, sig: dict,
             # inactive, so hand over both commands (back in service, and carry on); otherwise
             # "continue" would have to guess how to continue.
             if mode_for(node_id, dag) == 'checkpoint':
-                reason += (f'; to carry on: pf cycle status {cycle["id"]} active, '
-                           f'then pf next --cycle {cycle["id"]} --spawn --json')
+                reason += (f'; to carry on: sw cycle status {cycle["id"]} active, '
+                           f'then sw next --cycle {cycle["id"]} --spawn --json')
         elif named:
             reason = (f'the node {named} named by the instruction is not a ready node; '
                       f'stopping here')
@@ -399,7 +399,7 @@ def _close_own_node(project: Path, cycle: dict, node_id: str, sig: dict,
             if others:
                 reason = (f'{node_id[:8]} is closed; still holding '
                           f'{", ".join(x[:8] for x in others)}, their notes are collected as they '
-                          f'arrive (pf next --after <node id> --json) -- this line stays in '
+                          f'arrive (sw next --after <node id> --json) -- this line stays in '
                           f'service, and on its own close that slot fills and dispatches.')
             else:
                 # What a one-slot line's close counts as delivered is this node: the dependents it

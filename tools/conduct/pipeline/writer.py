@@ -50,7 +50,7 @@ def resolve_spawner(project, cycle_id: str | None, cli_value: str | None = None)
     """Which spawner opens this dispatch's session: the most specific answer wins.
 
     `--spawner` (whatever the caller names this once) > this line's own `spawner` policy
-    (`pf cycle policy <cycle> spawner dsh|zcode`, which rides along with the line's record) >
+    (`sw cycle policy <cycle> spawner dsh|zcode`, which rides along with the line's record) >
     `DSH_CONDUCT_SPAWNER` (this machine) > the host's own answer > `dsh`. A line with no policy and a
     call with no flag fall back to `SPAWNER_SCRIPT` -- an unconfigured line behaves unchanged.
     `SPAWNER_SCRIPT` rather than working out the host now: it is the replaceable seam at the entry
@@ -145,7 +145,7 @@ def _claim_spawn(project: Path, cycle_id: str, node_id: str) -> tuple[bool, Path
     for _ in range(3):
         try:
             fd = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(f'{os.getpid()} started {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}')
             return True, claim
         except FileExistsError:

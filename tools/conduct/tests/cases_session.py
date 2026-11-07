@@ -1,16 +1,16 @@
-"""`pf session`: which conversation produced a node, which ones ran it, and where that is written.
+"""`sw session`: which conversation produced a node, which ones ran it, and where that is written.
 
 A session id is machine-local -- a conversation lives on the machine that opened it -- so it does not
 ride on the record: `ideas.json` is shared, and an id in it is a value that is guaranteed dead on
 every other machine, and one that cannot be told apart from "that session was deleted here". The ids
-live in `.pf/meta/sessions/<node id>.json` (shape in `tools/shared/session-note.py`).
+live in `.superworker/meta/sessions/<node id>.json` (shape in `tools/shared/session-note.py`).
 
 These cases pin the handoff end to end, on a throwaway project, with the real tools:
 
   * `dag-manage add` notes the session the node was born in, and writes NO session field on the node
   * `dag-manage info` reads the note back; `rm` takes the note with the node
   * a dispatch notes the session it opened -- and a dry run notes nothing
-  * `pf session show|list` read the notes; `import` folds the older field in, once, and leaves the
+  * `sw session show|list` read the notes; `import` folds the older field in, once, and leaves the
     record byte-for-byte alone
   * the two spawner result-line shapes the note is filled from
 
@@ -47,7 +47,7 @@ ZCODE_SESSION = 'sess_22222222-2222-4222-8222-222222222222'
 
 def note_of(sb, node_id=NODE) -> dict:
     """One node's note off the disk, unread -- the bytes the tools wrote, not a reader's opinion."""
-    path = sb.root / '.pf' / 'meta' / 'sessions' / f'{node_id}.json'
+    path = sb.root / '.superworker' / 'meta' / 'sessions' / f'{node_id}.json'
     return json.loads(path.read_text(encoding='utf-8'))
 
 
@@ -84,7 +84,7 @@ class TestAddNotesTheBirthSession(Base):
             uid = added(run_dag(sb.root, 'add', 'a hand-typed node'))
 
         self.assertIn(uid, sb.dag()['nodes'])
-        self.assertFalse((sb.root / '.pf' / 'meta' / 'sessions' / f'{uid}.json').exists())
+        self.assertFalse((sb.root / '.superworker' / 'meta' / 'sessions' / f'{uid}.json').exists())
 
     def test_a_zcode_shaped_id_is_labelled_zcode(self):
         """`sess_…` is ZCode's id shape (`spawn/zcode-spawn.ps1` reads its own line off that
@@ -110,7 +110,7 @@ class TestAddNotesTheBirthSession(Base):
     def test_rm_takes_the_note_with_the_node(self):
         sb = self.make()
         uid = added(self.add_in_session(sb))
-        note = sb.root / '.pf' / 'meta' / 'sessions' / f'{uid}.json'
+        note = sb.root / '.superworker' / 'meta' / 'sessions' / f'{uid}.json'
         self.assertTrue(note.is_file())
 
         run_dag(sb.root, 'rm', uid)
@@ -150,7 +150,7 @@ class TestTheRunNoteAtDispatch(Base):
         sb, _action = self.pinned()
         with mock.patch.dict(os.environ, {'DSH_SESSION_ID': SESSION}):
             run_dag(sb.root, 'add', 'another slot')     # a note for a DIFFERENT node
-        self.assertTrue((sb.root / '.pf' / 'meta' / 'sessions').is_dir())
+        self.assertTrue((sb.root / '.superworker' / 'meta' / 'sessions').is_dir())
 
         sb.dispatch(spawner=self.stub(sb), dry_run=False)
 
@@ -166,7 +166,7 @@ class TestTheRunNoteAtDispatch(Base):
         proc = sb.dispatch(cli=True)
 
         self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertFalse((sb.root / '.pf' / 'meta' / 'sessions').exists(),
+        self.assertFalse((sb.root / '.superworker' / 'meta' / 'sessions').exists(),
                          'a dry run must not leave a note')
 
 
@@ -202,7 +202,7 @@ class TestTheSpawnerResultLine(unittest.TestCase):
 
 
 class TestSessionReadsAndImport(Base):
-    """`pf session show|list` read the notes; `import` folds the older field in and stops there."""
+    """`sw session show|list` read the notes; `import` folds the older field in and stops there."""
 
     def seeded(self, cli=True):
         """A project whose record still carries the old field, plus one header-only id."""
@@ -211,9 +211,9 @@ class TestSessionReadsAndImport(Base):
         sb.add_node(NODE2, 'another slot', mode='auto')
         dag = sb.dag()
         dag['nodes'][NODE]['dsh_session'] = SESSION
-        (sb.root / '.pf' / 'ideas.json').write_text(
+        (sb.root / '.superworker' / 'ideas.json').write_text(
             json.dumps(dag, ensure_ascii=False, indent=2), encoding='utf-8')
-        spec = sb.root / '.pf' / 'nodes' / NODE2 / 'spec.md'
+        spec = sb.root / '.superworker' / 'nodes' / NODE2 / 'spec.md'
         spec.write_text(f'# another slot\n\n> discussion: dsh-session:{ZCODE_SESSION}\n\nbody\n',
                         encoding='utf-8')
         return sb
@@ -276,11 +276,11 @@ class TestSessionReadsAndImport(Base):
 
     def test_import_leaves_the_record_byte_for_byte_alone(self):
         sb = self.seeded(cli=False)
-        before = (sb.root / '.pf' / 'ideas.json').read_bytes()
+        before = (sb.root / '.superworker' / 'ideas.json').read_bytes()
 
         run_state_manage(sb.root, 'session', 'import')
 
-        self.assertEqual(before, (sb.root / '.pf' / 'ideas.json').read_bytes(),
+        self.assertEqual(before, (sb.root / '.superworker' / 'ideas.json').read_bytes(),
                          'the field stays where it is, dead; nothing rewrites the record')
 
     def test_import_twice_is_a_no_op(self):
@@ -304,7 +304,7 @@ class TestSessionReadsAndImport(Base):
 
 
 class TestTheRecordDoors(Base):
-    """The four things under `.pf/` have one door each: every door takes `project`, and the
+    """The four things under `.superworker/` have one door each: every door takes `project`, and the
     caller says whose project to read.
 
     `session` (the graph, `nodes/<id>/spec.md`, `meta/sessions/`), `instruction` and `levers` (the
@@ -316,7 +316,7 @@ class TestTheRecordDoors(Base):
     def state_package(self):
         """`state` is a package with relative imports: load the whole package by path (following
         state-manage.py's bootstrap)."""
-        name = 'pf_state_for_doors'
+        name = 'sw_state_for_doors'
         for stale in [n for n in sys.modules if n == name or n.startswith(name + '.')]:
             del sys.modules[stale]
         pkg_dir = CONDUCT_DIR / 'state'
@@ -338,7 +338,7 @@ class TestTheRecordDoors(Base):
         other.instruct('a constraint on the other side')
 
         store = self.state_package().store
-        store.bind_paths(str(mine.root / '.pf'))        # the in-process binding stays where it is
+        store.bind_paths(str(mine.root / '.superworker'))        # the in-process binding stays where it is
 
         self.assertEqual({'cyc'}, {c['id'] for c in store._read_state()['cycles']})
         self.assertEqual({'other'}, {c['id'] for c in store._read_state(str(other.root))['cycles']})
@@ -364,7 +364,7 @@ class TestTheNoteItself(unittest.TestCase):
         self.note.append(self.root, NODE, 'discussion', SESSION, at='2026-10-01T00:00:00Z')
         self.note.append(self.root, NODE, 'run', 'session-run-1')
 
-        raw = json.loads((self.root / '.pf' / 'meta' / 'sessions' / f'{NODE}.json')
+        raw = json.loads((self.root / '.superworker' / 'meta' / 'sessions' / f'{NODE}.json')
                          .read_text(encoding='utf-8'))
 
         self.assertEqual({'v', 'discussion', 'run'}, set(raw), 'the shape is exactly this much')
@@ -387,7 +387,7 @@ class TestTheNoteItself(unittest.TestCase):
     def test_an_unreadable_file_reads_as_empty_and_never_raises(self):
         """A note is a machine-local, disposable pipeline artifact: unreadable reads as absent, and
         a tool must never die on it."""
-        path = self.root / '.pf' / 'meta' / 'sessions' / f'{NODE}.json'
+        path = self.root / '.superworker' / 'meta' / 'sessions' / f'{NODE}.json'
         path.parent.mkdir(parents=True)
         for body in ('{not json', json.dumps({'v': 99, 'discussion': []}),
                      json.dumps({'v': 1, 'discussion': [{'host': 'dsh'}]})):

@@ -37,7 +37,7 @@ SHAPE = r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z'
 
 def load_clock():
     """`tools/shared/clock.py`: the one source of the recorded timestamp shape."""
-    spec = importlib.util.spec_from_file_location('pf_shared_clock_case',
+    spec = importlib.util.spec_from_file_location('sw_shared_clock_case',
                                                   TOOLS / 'shared' / 'clock.py')
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -88,17 +88,17 @@ class ProjectCase(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix='dag-cli-'))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
         ledger.mkdir(parents=True, exist_ok=True)
         (ledger / '.gitignore').write_text('meta/\n', encoding='utf-8')
         (ledger / '.gitattributes').write_text('** -text\n', encoding='utf-8')
 
     def write_graph(self, nodes: dict):
-        (self.root / '.pf' / 'ideas.json').write_text(
+        (self.root / '.superworker' / 'ideas.json').write_text(
             json.dumps({'nodes': nodes}, ensure_ascii=False), encoding='utf-8')
 
     def graph(self) -> dict:
-        return json.loads((self.root / '.pf' / 'ideas.json').read_text(encoding='utf-8'))
+        return json.loads((self.root / '.superworker' / 'ideas.json').read_text(encoding='utf-8'))
 
     def add(self, title: str) -> str:
         code, out, err = run(self.root, 'add', title)
@@ -263,7 +263,7 @@ class TestTheApproval(ProjectCase):
         return self.graph()['nodes'][uid]
 
     def ideas_bytes(self) -> bytes:
-        return (self.root / '.pf' / 'ideas.json').read_bytes()
+        return (self.root / '.superworker' / 'ideas.json').read_bytes()
 
     def test_the_moment_lands_on_a_delivered_node(self):
         code, out, err = run(self.root, 'approve', A)
@@ -395,7 +395,7 @@ class TestTheSpecLanding(ProjectCase):
 
         self.assertEqual(0, code, err or opened)
         self.assertEqual(reported, opened)
-        self.assertTrue(opened.replace('\\', '/').endswith(f'.pf/nodes/{uid}/spec.md'), opened)
+        self.assertTrue(opened.replace('\\', '/').endswith(f'.superworker/nodes/{uid}/spec.md'), opened)
 
     def test_both_verbs_take_the_path_from_the_pipeline(self):
         """Swap the pipeline's place for a sentinel: whatever `add` and `open` print must be the
@@ -476,8 +476,8 @@ class TestTheModuleBindsNothingAtImport(ProjectCase):
         tools/, and neither temp project is there."""
         other = Path(tempfile.mkdtemp(prefix='dag-cli-other-'))
         self.addCleanup(shutil.rmtree, other, ignore_errors=True)
-        (other / '.pf').mkdir(parents=True, exist_ok=True)
-        (other / '.pf' / 'ideas.json').write_text(
+        (other / '.superworker').mkdir(parents=True, exist_ok=True)
+        (other / '.superworker' / 'ideas.json').write_text(
             json.dumps({'nodes': {A: {'title': 'elsewhere', 'status': 'todo',
                                       'dependencies': []}}}), encoding='utf-8')
         self.write_graph({B: {'title': 'here', 'status': 'todo', 'dependencies': []}})

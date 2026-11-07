@@ -12,6 +12,7 @@
     },
     "test_seconds_limit": {
       "kind": "number",
+      "default": null,
       "summary": "the project test suite's full wall clock (seconds) the next close must read below"
     }
   },
@@ -26,7 +27,7 @@
     "test_seconds": {
       "line": "test_seconds_limit",
       "tag": "test-audit:test_seconds",
-      "method": "pf-test-audit"
+      "method": "sw-test-audit"
     }
   }
 }

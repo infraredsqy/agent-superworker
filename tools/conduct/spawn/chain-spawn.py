@@ -28,7 +28,7 @@ session that *would* open, and a gate about to say no is part of that answer.
 One guarantee does NOT come with it, and stating it beats assuming it: the spawn claim. A claim is
 taken only for a prompt that sits in the launch directory it belongs to
 (`meta/launch/<cycle>/<node_id>/prompt.txt`), and a skill-run chain keeps its prompt next to itself
-(`.pf/repair/chain/…`), so this path takes no claim -- two concurrent handoffs of the same prompt file
+(`.superworker/repair/chain/…`), so this path takes no claim -- two concurrent handoffs of the same prompt file
 have no mutual exclusion. That gap is open: the door refuses a double dispatch only where the pipeline
 placed the prompt itself.
 
@@ -59,7 +59,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER

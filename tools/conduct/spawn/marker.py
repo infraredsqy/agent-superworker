@@ -10,7 +10,7 @@ side (the beat in `handoff.py` where a note cannot be written) uses the three fu
 directly; the layer both spawners share (`spawn/spawn-common.ps1`) writes the same shape itself --
 that exception and its reason are written in the `how` item.
 
-    lands at  marker_path(project, cycle) -- `<project>/.pf/meta/CONDUCT-CALLBACK-FAILED-<cycle>.json`
+    lands at  marker_path(project, cycle) -- `<project>/.superworker/meta/CONDUCT-CALLBACK-FAILED-<cycle>.json`
               one file per line: with parallel=2 two lines run side by side, and a success on this
               line clears only this line's marker, never wiping another line's broken-chain sign.
     shape     record(cycle, phase, reason, attempts=, workspace=, extra=) -- one shape, and every
@@ -20,7 +20,7 @@ that exception and its reason are written in the `how` item.
               `tools/shared/clock.py` (`clock.now()`) -- the moment's shape has exactly one source.
     how       write(path, payload) -- `tools/shared/jsonio.py`'s atomic write: temp file +
               same-volume rename + a retry for "the reader has the target file open right now".
-              Every `.pf/` record in the tree goes through this one primitive.
+              Every `.superworker/` record in the tree goes through this one primitive.
               **One exception**: the spawner layer (`spawn/spawn-common.ps1`) writes the same shape
               in pure PowerShell. The reason is physical -- the machine a spawner runs on, at that
               moment, may have no python, and PowerShell cannot import this module, while this very
@@ -38,7 +38,7 @@ that exception and its reason are written in the `how` item.
     who deletes  the human. Once they have taken over and checked that nothing is wrong, they delete
               this file themselves.
 
-The name `.pf` and the `meta/` layer are borrowed from `tools/shared/ledger.py` (`meta_dir_for`):
+The name `.superworker` and the `meta/` layer are borrowed from `tools/shared/ledger.py` (`meta_dir_for`):
 the dispatch side stops assembling a second copy of its own, and when the name changes the marker
 moves along with the record.
 
@@ -71,8 +71,8 @@ MARKER_NAME = 'CONDUCT-CALLBACK-FAILED-{cycle}.json'
 #: The one sentence the marker writes about itself: where the chain broke, how to take over, when it
 #: may be deleted. Every path that writes it uses this one -- one wording for one thing.
 DEFAULT_NOTE = ('The chain broke here: this step could not start the next one, and the pipeline '
-                'will not move on by itself. To take over by hand use `pf next --after <node_id>` '
-                '(the closing step) or `pf dispatch <cycle>` (the dispatch step); once you have '
+                'will not move on by itself. To take over by hand use `sw next --after <node_id>` '
+                '(the closing step) or `sw dispatch <cycle>` (the dispatch step); once you have '
                 'checked that nothing is wrong, delete this file.')
 
 _LOADER = None
@@ -82,14 +82,14 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: `.pf/` and the `meta/` under it -- one source."""
+    """`tools/shared/ledger.py`: `.superworker/` and the `meta/` under it -- one source."""
     return _loader().load_shared('ledger')
 
 
@@ -101,7 +101,7 @@ def _clock():
 
 def marker_path(project, cycle: str) -> Path:
     """Where this line's degradation marker lands --
-    `<project>/.pf/meta/CONDUCT-CALLBACK-FAILED-<cycle>.json`.
+    `<project>/.superworker/meta/CONDUCT-CALLBACK-FAILED-<cycle>.json`.
 
     This is the tree's one place that spells this path: `argv_for` hands its result to the spawner
     as `-MarkerPath`, and `chain-spawn.py` takes the "where is the marker" phrase of its error from
@@ -137,7 +137,7 @@ def write(path, payload: dict) -> Path:
 
     A bare `os.replace` on Windows runs into "the reader has the target file open right now" and a
     PermissionError, and this path is exactly the write that must not be lost -- so it goes through
-    the same primitive as every other `.pf/` record in the tree. A failed write lets the exception
+    the same primitive as every other `.superworker/` record in the tree. A failed write lets the exception
     out (`PermissionError` is one kind of `OSError`): whether this beat swallows it, and what it
     says, is the caller's judgement.
     """
@@ -180,7 +180,7 @@ def main(argv=None) -> int:
                         help='facts of the host itself; may be given more than once')
     args = parser.parse_args(argv)
 
-    # The marker's landing place fixes the project root (`<project>/.pf/meta/...`); its own copy is
+    # The marker's landing place fixes the project root (`<project>/.superworker/meta/...`); its own copy is
     # used only when -WorkspacePath was given.
     workspace = args.workspace or Path(args.path).parent.parent.parent
     payload = record(args.cycle, args.phase, args.reason, attempts=args.attempts,

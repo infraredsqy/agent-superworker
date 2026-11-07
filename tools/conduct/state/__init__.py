@@ -1,11 +1,11 @@
 """Everything behind `state-manage.py`, split by responsibility.
 
-`state-manage.py` is the entry point: the CLI a launcher runs (through `pf`, which also reaches it
+`state-manage.py` is the entry point: the CLI a launcher runs (through `sw`, which also reaches it
 by path) and the module the test harness loads in process. It owns the argument
 parser and nothing else; the machinery is here:
 
-    store.py             one root -- `.pf/` -- and the four kinds of thing under it, and how they
-                         are read: where it is, how it is read, how it is written
+    store.py             one root -- `.superworker/` -- and the four kinds of thing under it, and how
+                         they are read: where it is, how it is read, how it is written
     pipeline_loader.py   how `conduct_pipeline.py` is loaded by path
     knobs.py             the settings table: the four kinds, the one chain (node -> cycle -> project
                          -> global -> factory default), and what came from which layer
@@ -17,16 +17,18 @@ parser and nothing else; the machinery is here:
                          standalone half of its spawn tail; also the closing call's by-node
                          resolution
     levers.py            the tidy levers (clean-temp)
-    initledger.py        `init` -- the one setup act: write `.pf/.gitignore`, `.pf/.gitattributes` and
-                         `.pf/AGENTS.md`; and `register`, which wires the merge driver into a
+    initledger.py        `init` -- the one setup act: write the four layout files under
+                         `.superworker/`; and `register`, which wires the merge driver into a
                          project's git config (init does it too)
+    migrate.py           `migrate` -- move a workspace's records out of the old `.pf/`, and carry the
+                         attachments (ignore line, driver, machine layer) along
     fork.py              the parallel-mode fork: `fork-worktree`, one worktree per node, and the
                          FORK record the close gates on
     config.py            the settings command: list / get / set / unset over the knob chain, and the
                          layer the value is written to
     session.py           the `session` group: which conversation produced a node, and which ones ran
-                         it -- read from `.pf/meta/sessions/`, plus the one-shot import of the ids an
-                         older record left behind
+                         it -- read from `.superworker/meta/sessions/`, plus the one-shot import of the
+                         ids an older record left behind
 
 This package is loaded by PATH, never by name: `state-manage.py` registers it under `pf_state`
 on every load, so a caller that loads a fresh `state-manage.py` per project -- the test harness does
@@ -42,6 +44,7 @@ from . import instruct  # noqa: F401
 from . import nextcmd  # noqa: F401
 from . import levers  # noqa: F401
 from . import initledger  # noqa: F401
+from . import migrate  # noqa: F401
 from . import fork  # noqa: F401
 from . import config  # noqa: F401
 from . import session  # noqa: F401
@@ -57,7 +60,7 @@ __all__ = [
     'store', 'pipeline_loader', 'knobs', 'cycles', 'instruct', 'nextcmd', 'levers',
     'initledger', 'fork', 'config',
 
-    # store: the read/write layer over the ledger (`.pf/`) and the doors off it
+    # store: the read/write layer over the ledger (`.superworker/`) and the doors off it
     'VALID_NODE_RESULTS', 'ISO_FMT', 'LEDGER_NAME', 'INIT_MARKERS',
     'ledger_dir_for', 'meta_dir_for', 'nodes_dir_for', 'require_initialized',
     '_now', '_atomic_write', '_read_json', '_read_state', '_read_dag', '_write_state',
@@ -97,6 +100,9 @@ __all__ = [
     # nextcmd / levers / init
     'cmd_next', 'cmd_dispatch', 'cmd_clean_temp', 'cmd_init', 'cmd_register',
 
+    # migrate: the move out of the old record directory, and the reading of whether it may run
+    'cmd_migrate', 'migration_preconditions', 'refusal_sentence', 'KNOWN_GENERATIONS',
+
     # fork: the parallel-mode fork, its worktree, and the record the close gates on
     'node_short_id', 'worktree_path', 'worktree_branch', 'fork_record_path',
     'cmd_fork_worktree', 'gate_close_on_fork',
@@ -105,13 +111,13 @@ __all__ = [
     'CONFIG_NAME', 'resolve_config', 'config_sources', 'write_value',
     'cmd_config_list', 'cmd_config_get', 'cmd_config_set', 'cmd_config_unset',
 
-    # session: the node's own conversations -- the note under `.pf/meta/sessions/`, and the import
+    # session: the node's own conversations -- the note under `.superworker/meta/sessions/`, and the import
     'cmd_session_show', 'cmd_session_list', 'cmd_session_import',
 ]
 
 
 def bind_paths(ledger_dir) -> None:
-    """Point this copy of the tool at one project's `.pf/` (in-process callers only).
+    """Point this copy of the tool at one project's `.superworker/` (in-process callers only).
 
     Everything the tool writes for a project lives under that one directory. The CLI's paths come
     from `Path.cwd()` at import, because it is started with the cwd set to the project. A caller that
@@ -128,7 +134,7 @@ def bind_paths(ledger_dir) -> None:
 # has to avoid -- so a name nobody defines is a loud ImportError at load time, not a missing
 # attribute later.
 _LAYERS = (store, pipeline_loader, knobs, cycles, instruct, nextcmd, levers, initledger,
-           fork, config, session)
+           migrate, fork, config, session)
 
 for _name in __all__:
     if _name in globals():

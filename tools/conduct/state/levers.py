@@ -1,14 +1,14 @@
 """The tidy levers over what is already on disk.
 
 Owns cmd_clean_temp: the sweep of the per-node `temp/` directories, which live in each node's own
-place (`<project>/.pf/nodes/<id>/temp/`). temp is the one place process records go, so clearing it
+place (`<project>/.superworker/nodes/<id>/temp/`). temp is the one place process records go, so clearing it
 is a whole-directory sweep -- never a per-file judgement.
 
 Two rules that are not obvious:
 
   * a node a cycle is holding RIGHT NOW is skipped. Its temp is where the session running it is
     writing raw output this minute; clearing it would take that evidence away mid-flight.
-  * every live worktree is swept too (`.pf/worktrees/<short id>/.pf/nodes/<id>/temp/`). The prompts
+  * every live worktree is swept too (`.superworker/worktrees/<short id>/.superworker/nodes/<id>/temp/`). The prompts
     send workers to the MAIN tree for snapshots, but a worker that reads the path wrong creates the
     directory in the worktree instead, and a sweep that only looked at the main tree would leave it
     there to die with the checkout.

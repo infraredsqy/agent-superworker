@@ -6,7 +6,7 @@ With two cycles running side by side (`parallel: worktree` mode), these things r
   * Four whole-file read-modify-write records (state / ideas / instructions / issues) walked by two
     processes at once -- without the lock they overwrite each other whole. Here **real processes**
     collide: four `instruct add` start together, and all four must land.
-  * A worker's cwd sits in `.pf/worktrees/<short id>`, where a `.pf/` checkout from fork time is --
+  * A worker's cwd sits in `.superworker/worktrees/<short id>`, where a `.superworker/` checkout from fork time is --
     if the record commands trusted it, the two lines would each keep their own books. Here a **real
     git worktree** proves it: with cwd in the worktree, the close and the graph marks land in the
     main tree, the checkout in the worktree does not move a byte, and signal.py run directly at
@@ -59,7 +59,7 @@ class TestLedgerLock(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix='conduct-lock-')
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        # init's two marker files: the lock only sits in an init-ed `.pf/`, and all four
+        # init's two marker files: the lock only sits in an init-ed `.superworker/`, and all four
         # concurrent writes need it.
         init_markers(root)
         env = _child_env()
@@ -75,7 +75,7 @@ class TestLedgerLock(unittest.TestCase):
         for n, (proc, (out, err)) in enumerate(zip(procs, outs)):
             self.assertEqual(proc.returncode, 0,
                              f'add #{n} failed: {err}')
-        data = json.loads((root / '.pf' / 'instructions.json').read_text(encoding='utf-8'))
+        data = json.loads((root / '.superworker' / 'instructions.json').read_text(encoding='utf-8'))
         texts = [i['text'] for i in data['instructions']]
         self.assertEqual(sorted(texts), sorted(f'concurrent entry {n}' for n in range(4)),
                          'a concurrent writer was erased: the lock did not hold')
@@ -94,19 +94,19 @@ class TestWorktreeRedirect(unittest.TestCase):
         self.repo = Path(tmp.name) / 'main'
         self.repo.mkdir(parents=True)
         git(self.repo, 'init', '-b', 'main')
-        # init's two marker files. This repo is the "committed" flavour: `.pf/` goes into the repo
-        # with everything else, and `.pf/.gitignore` keeps meta/ and worktrees/ out.
-        pf = init_markers(self.repo)
-        (pf / 'state.json').write_text(json.dumps(
+        # init's two marker files. This repo is the "committed" flavour: `.superworker/` goes into the repo
+        # with everything else, and `.superworker/.gitignore` keeps meta/ and worktrees/ out.
+        sw = init_markers(self.repo)
+        (sw / 'state.json').write_text(json.dumps(
             {'cycles': [{'id': 'cyc', 'title': 't', 'status': 'active', 'holding': [],
                          'path': []}]}, indent=2), encoding='utf-8')
-        (pf / 'ideas.json').write_text(json.dumps(
+        (sw / 'ideas.json').write_text(json.dumps(
             {'nodes': {NODE: {'title': 'node', 'status': 'todo', 'mode': 'auto',
                               'dependencies': []}}}, indent=2), encoding='utf-8')
         git(self.repo, 'add', '-A')
         git(self.repo, 'commit', '-m', 'seed', '--no-gpg-sign')
-        git(self.repo, 'worktree', 'add', '.pf/worktrees/w1', '-b', 'pf/w1')
-        self.wt = self.repo / '.pf' / 'worktrees' / 'w1'
+        git(self.repo, 'worktree', 'add', '.superworker/worktrees/w1', '-b', 'sw/w1')
+        self.wt = self.repo / '.superworker' / 'worktrees' / 'w1'
 
     def _run(self, tool, *args):
         return run_argv([tool, *args], cwd=self.wt, check=False)
@@ -115,10 +115,10 @@ class TestWorktreeRedirect(unittest.TestCase):
         proc = self._run(STATE_MANAGE, 'cycle', 'hold', 'cyc', NODE)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-        state = json.loads((self.repo / '.pf' / 'state.json').read_text(encoding='utf-8'))
+        state = json.loads((self.repo / '.superworker' / 'state.json').read_text(encoding='utf-8'))
         self.assertEqual([h['id'] for h in state['cycles'][0]['holding']], [NODE],
                          'the close landed in the worktree stale copy, not the main tree')
-        stale = json.loads((self.wt / '.pf' / 'state.json').read_text(encoding='utf-8'))
+        stale = json.loads((self.wt / '.superworker' / 'state.json').read_text(encoding='utf-8'))
         self.assertEqual(stale['cycles'][0]['holding'], [],
                          'the worktree checkout was written to')
 
@@ -126,9 +126,9 @@ class TestWorktreeRedirect(unittest.TestCase):
         proc = self._run(DAG_MANAGE, 'status', NODE, 'completed')
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-        dag = json.loads((self.repo / '.pf' / 'ideas.json').read_text(encoding='utf-8'))
+        dag = json.loads((self.repo / '.superworker' / 'ideas.json').read_text(encoding='utf-8'))
         self.assertEqual(dag['nodes'][NODE]['status'], 'completed')
-        stale = json.loads((self.wt / '.pf' / 'ideas.json').read_text(encoding='utf-8'))
+        stale = json.loads((self.wt / '.superworker' / 'ideas.json').read_text(encoding='utf-8'))
         self.assertEqual(stale['nodes'][NODE]['status'], 'todo')
 
     def test_the_standalone_signal_script_lands_in_the_main_tree(self):
@@ -142,10 +142,10 @@ class TestWorktreeRedirect(unittest.TestCase):
                         cwd=self.wt, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-        sig = json.loads((self.repo / '.pf' / 'signals' / 'cyc' / f'{NODE}.json')
+        sig = json.loads((self.repo / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json')
                          .read_text(encoding='utf-8'))
         self.assertEqual('completed', sig['status'])
-        self.assertFalse((self.wt / '.pf' / 'signals' / 'cyc' / f'{NODE}.json').exists(),
+        self.assertFalse((self.wt / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json').exists(),
                          'the signal landed in the worktree stale copy, not the main tree')
 
 
@@ -159,9 +159,9 @@ class TestSpawnClaim(unittest.TestCase):
         self.addCleanup(self.sb.close)
         self.sb.add_node(NODE, 'UI design', mode='auto')
         self.sb.start_cycle()
-        self.prompt = (self.sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / NODE / 'prompt.txt')
+        self.prompt = (self.sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE / 'prompt.txt')
         self.prompt.parent.mkdir(parents=True, exist_ok=True)
-        self.prompt.write_text('/pf-conduct test\n', encoding='utf-8')
+        self.prompt.write_text('/sw-conduct test\n', encoding='utf-8')
         self.claim = self.prompt.parent / 'SPAWN.claim'
 
     def stub(self, name='ok-spawner.ps1', body=None):

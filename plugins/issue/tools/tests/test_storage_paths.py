@@ -65,7 +65,7 @@ class TestThePoolModuleBindsNothingAtImport(unittest.TestCase):
         """cwd is elsewhere: whoever is named is the one read."""
         other = Path(tempfile.mkdtemp(prefix='issue-paths-other-'))
         self.addCleanup(shutil.rmtree, other, ignore_errors=True)
-        landed = other / '.pf' / 'issues' / 'issues.json'
+        landed = other / '.superworker' / 'issues' / 'issues.json'
         landed.parent.mkdir(parents=True)
         landed.write_text(json.dumps(pool('theirs')), encoding='utf-8')
         mod = load_storage()
@@ -81,7 +81,7 @@ class TestThePoolModuleBindsNothingAtImport(unittest.TestCase):
 
         mod._write(pool('mine'))
 
-        landed = self.root / '.pf' / 'issues' / 'issues.json'
+        landed = self.root / '.superworker' / 'issues' / 'issues.json'
         self.assertTrue(landed.is_file())
         self.assertEqual(['mine'], sorted(json.loads(landed.read_text(encoding='utf-8'))['issues']))
 

@@ -17,7 +17,7 @@ class TestTheOneLoader(unittest.TestCase):
     """`tools/shared/loader.py`: the three knobs, and what each one is for."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-loader-case-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-loader-case-')
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.loader = shared_loader()
@@ -109,7 +109,7 @@ class TestTheSharedDoor(unittest.TestCase):
         again = shared_loader().load_shared('jsonio')
 
         self.assertIs(mod, again, 'the second fetch handed back another module object')
-        self.assertIs(sys.modules['pf_shared_jsonio'], mod,
+        self.assertIs(sys.modules['sw_shared_jsonio'], mod,
                       'the name this door registered does not match the one in sys.modules')
 
     def test_a_hyphen_in_the_stem_stays_out_of_the_registered_name(self):
@@ -124,7 +124,7 @@ class TestTheSharedDoor(unittest.TestCase):
         mod = shared_loader().load_shared('session-note')
 
         self.assertEqual((SHARED_DIR / 'session-note.py').resolve(), Path(mod.__file__).resolve())
-        self.assertIs(sys.modules['pf_shared_sessionnote'], mod,
+        self.assertIs(sys.modules['sw_shared_sessionnote'], mod,
                       'the registered name kept the hyphen: the next fetch runs a second copy')
         self.assertIs(shared_loader().load_shared('session-note'), mod,
                       'the second fetch of the hyphenated stem handed back another module object')
@@ -135,12 +135,12 @@ class TestTheSharedDoor(unittest.TestCase):
 
         What this holds off: the two doors giving a copy each. A shared piece is "one copy per
         process" in this tree, and the case that monkeypatches the source's attributes (the one in
-        `conduct/tests/cases_shared.py` where renaming `.pf` takes the marker along) depends on
+        `conduct/tests/cases_shared.py` where renaming `.superworker` takes the marker along) depends on
         there being only one copy of the source -- with two, the patch lands on one of them, the
         path under test reads the other, and the case silently tests an empty shell.
         """
         via_door = shared_loader().load_shared('ledger')
-        via_knobs = shared_loader().load_by_path('pf_shared_ledger', SHARED_DIR / 'ledger.py',
+        via_knobs = shared_loader().load_by_path('sw_shared_ledger', SHARED_DIR / 'ledger.py',
                                                  register=True, reuse=True)
 
         self.assertIs(via_door, via_knobs,

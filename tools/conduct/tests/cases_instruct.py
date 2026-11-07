@@ -369,7 +369,7 @@ class TestInstructionAuthority(Base):
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('a global constraint', proc.stdout)
-        self.assertTrue((sb.root / '.pf' / 'instructions.json').exists())
+        self.assertTrue((sb.root / '.superworker' / 'instructions.json').exists())
 
 
 class TestInstructionRemoval(Base):
@@ -384,7 +384,7 @@ class TestInstructionRemoval(Base):
         return sb, [e['id'] for e in sb.instruct_list()]
 
     def account_bytes(self, sb) -> str:
-        return (sb.root / '.pf' / 'instructions.json').read_text(encoding='utf-8')
+        return (sb.root / '.superworker' / 'instructions.json').read_text(encoding='utf-8')
 
     def test_the_entry_and_its_text_are_gone_from_every_reading(self):
         """Archiving hides an entry from the default view; removal has to leave nothing at all --
@@ -525,4 +525,4 @@ class TestInstructionRevival(Base):
         self.assertIn('was removed', proc.stderr)
         self.assertEqual(sb.instruct_list(), [])
         self.assertNotIn('a global constraint',
-                         (sb.root / '.pf' / 'instructions.json').read_text(encoding='utf-8'))
+                         (sb.root / '.superworker' / 'instructions.json').read_text(encoding='utf-8'))

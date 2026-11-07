@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import sys
 
-#: Which ledger record a file under `.pf/` is.
+#: Which ledger record a file under `.superworker/` is.
 KIND_IDEAS = 'ideas'
 KIND_STATE = 'state'
 KIND_INSTRUCTIONS = 'instructions'
@@ -102,7 +102,7 @@ class Report:
 
     def conflict(self, entry: str, field: str, ours, theirs, note: str = '') -> None:
         tail = f' ({note})' if note else ''
-        self.conflicts.append(f'pf conflict [{self.path}] {entry} field {field}: '
+        self.conflicts.append(f'sw conflict [{self.path}] {entry} field {field}: '
                               f'ours={_fmt(ours)} theirs={_fmt(theirs)}{tail}')
 
     def flush_conflicts(self) -> None:

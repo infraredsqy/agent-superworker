@@ -68,24 +68,24 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: where `.pf/` lands, the worktree-to-main-tree rule, the init gate
+    """`tools/shared/ledger.py`: where `.superworker/` lands, the worktree-to-main-tree rule, the init gate
     -- one source."""
     return _loader().load_shared('ledger')
 
-# One directory per project: `.pf/` holds the graph, each node's own text (`spec.md`, reports), and
+# One directory per project: `.superworker/` holds the graph, each node's own text (`spec.md`, reports), and
 # the cycle book the conduct side keeps. A project either commits it or keeps it to itself -- the
 # tool does not care which. The pipeline's plumbing (launch prompts, worktree, a node's temp files)
-# sits under `.pf/meta/`, `.pf/worktrees/` and `.pf/nodes/<id>/temp/`, all three ignored by
-# `.pf/.gitignore`.
+# sits under `.superworker/meta/`, `.superworker/worktrees/` and `.superworker/nodes/<id>/temp/`, all three ignored by
+# `.superworker/.gitignore`.
 #
-# A `.pf/` the tool created by itself, never init'ed, is the one state that must stay unreachable:
+# A `.superworker/` the tool created by itself, never init'ed, is the one state that must stay unreachable:
 # the lock's `mkdir` would otherwise leave a directory that is neither tracked nor ignored for the
 # next `git add -A` to sweep up. `_require_initialized` closes that door, and the judgement behind it
 # (the two markers, and the sentence a refused write is told) is `tools/shared/ledger.py`'s.
@@ -106,7 +106,7 @@ IDEAS_JSON = None
 
 
 def configure(project_root) -> None:
-    """Pin the ledger to one project: `<root>/.pf/`, with its `nodes/` and `ideas.json` under it.
+    """Pin the ledger to one project: `<root>/.superworker/`, with its `nodes/` and `ideas.json` under it.
 
     This is the door paths enter this module through: the CLI calls it once from cwd inside `main()`,
     and in-process callers name the project themselves.
@@ -119,7 +119,7 @@ def configure(project_root) -> None:
 
 
 def _project_root() -> Path:
-    """One level above the ledger: the `<root>` of `<root>/.pf`; a note's landing place is computed
+    """One level above the ledger: the `<root>` of `<root>/.superworker`; a note's landing place is computed
     from it."""
     return LEDGER_DIR.parent
 
@@ -138,7 +138,7 @@ CONDUCT_IMPL = HERE.parent / 'conduct' / 'pipeline'
 
 
 def _spec_path(uid: str) -> str:
-    """`<root>/.pf/nodes/<uid>/spec.md`, whose landing place is given by `nodes.node_spec_path`.
+    """`<root>/.superworker/nodes/<uid>/spec.md`, whose landing place is given by `nodes.node_spec_path`.
 
     This path is computed in one place only: what `add` reports, what `open` prints, and where the
     pipeline writes the spec are all this same value. That package is loaded by path under a name of
@@ -293,14 +293,14 @@ def _write(data: dict) -> None:
 # ── the cross-process ledger lock ─────────────────────────────────────────────
 # ideas.json is whole-file read-modify-write; two processes walking that at once means the later
 # write erases the earlier one. Every MUTATING command body holds the project's one lock across
-# its read → write -- the same `.pf/meta/ledger.lock` file conduct and a session note's own writer
+# its read → write -- the same `.superworker/meta/ledger.lock` file conduct and a session note's own writer
 # use, and every plugin tool that keeps a record here, so writes exclude each other across all of
 # them. Reentrant per process
 # (this body writes a node's note inside its own read-modify-write).
 
 
 def _require_initialized() -> None:
-    """A `.pf/` that was never init-ed may have nothing written to it: the lock's `mkdir` is the one
+    """A `.superworker/` that was never init-ed may have nothing written to it: the lock's `mkdir` is the one
     thing that would create it.
 
     It reads `LEDGER_DIR`, the ledger `configure()` named; the criterion and that sentence live in
@@ -556,8 +556,8 @@ def cmd_add(args):
         # The session a node was born in does not land in the record: `ideas.json` is shared, and a
         # session only means anything on this machine -- elsewhere it is a dead value that can never
         # be opened, and it does not even tell "that was another machine" from "this run was
-        # deleted". So it lands in `.pf/meta/sessions/<uuid>.json` (`meta/` is kept out of the
-        # version repository by `.pf/.gitignore`), see `tools/shared/session-note.py`. The tool still
+        # deleted". So it lands in `.superworker/meta/sessions/<uuid>.json` (`meta/` is kept out of the
+        # version repository by `.superworker/.gitignore`), see `tools/shared/session-note.py`. The tool still
         # reads the environment variable; the caller does not copy it over -- the copy always misses
         # one.
         # Written after `_write(data)`: a failed dependency check calls `_rollback_add`, and a slot
@@ -904,7 +904,7 @@ def cmd_list(args):
 
     # Eisenhower matrix: importance first, then urgency.
     # Completed and blocked nodes have no scores → sort to bottom (0, 0). Blocked must
-    # sink: pf-route's global scan is `list --limit N`, so a blocked node left with real
+    # sink: sw-route's global scan is `list --limit N`, so a blocked node left with real
     # scores would be re-recommended every round and blow up again.
     result.sort(key=lambda e: (-e.get('importance_score', 0),
                                 -e.get('urgency_level', 0)))

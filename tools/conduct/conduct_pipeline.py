@@ -11,9 +11,9 @@ at a time (a second active cycle is legal, but then a bare `next` has to be told
 
 How a node splits its own work is the session's business and never the pipeline's: those are
 subagents it commands, not cells this tool tracks. Nothing about a node's internals is written to
-`.pf/` -- what the pipeline keeps is the cycle's identity, the node it is holding right now, and the
+`.superworker/` -- what the pipeline keeps is the cycle's identity, the node it is holding right now, and the
 path of nodes it has finished. Its dispatch plumbing (prompt files, the broken-chain marker) sits in
-`.pf/meta/`, which `.pf/.gitignore` keeps out of the history.
+`.superworker/meta/`, which `.superworker/.gitignore` keeps out of the history.
 
 Two rules this module owns
 --------------------------
@@ -60,7 +60,7 @@ Usage:
     python conduct_pipeline.py record [--cycle ID] [--project DIR]
 
 Those three are this module's own entry, for drills and tests. The pipeline's one entry point is
-`pf next`: `--plan` runs `plan`, `--after <node>` runs `apply`, neither runs `record`, and
+`sw next`: `--plan` runs `plan`, `--after <node>` runs `apply`, neither runs `record`, and
 `state-manage.py next --help` prints the action vocabulary from `ACTIONS` on its tail.
 
 Environment:
@@ -108,7 +108,7 @@ def _as_text(cmd: list) -> str:
 
 
 def _run(cmd: list, cwd: Path) -> None:
-    # cwd matters: `.pf/` is resolved relative to the process cwd.
+    # cwd matters: `.superworker/` is resolved relative to the process cwd.
     try:
         proc = subprocess.run([str(c) for c in cmd], cwd=str(cwd), capture_output=True,
                               text=True, encoding='utf-8', errors='replace', timeout=CMD_TIMEOUT)
@@ -168,7 +168,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -271,14 +271,14 @@ def main(argv=None) -> int:
 
     What is here is the parse and the one call into the package. The output -- JSON or the human
     rendering, and the rule that a preview carries no commands -- is `actions.render_action`'s, the
-    same one `pf next` prints through, so the two spellings of the pipeline's front door cannot drift
+    same one `sw next` prints through, so the two spellings of the pipeline's front door cannot drift
     apart in what they show.
 
     The closing call's answers (`--continue` / `--stop` / `--node` / `--note`) are refused unless
-    something is being settled or previewed, exactly as `pf next` refuses them without `--after` or
+    something is being settled or previewed, exactly as `sw next` refuses them without `--after` or
     `--plan`: with nothing being settled, there is no question for them to answer, and a quiet no-op
     would read as if that answer had been taken. `apply` is this module's spelling of
-    `pf next --after <node>` -- the settle that reads the ticket -- so `--after` names the node it is
+    `sw next --after <node>` -- the settle that reads the ticket -- so `--after` names the node it is
     about (one line can hold several at once) and the closing answers ride with it; the reason text a
     human reads is the same on both entries, `self_verified` and `decision_given` included. `--after`
     is refused where nothing is settled (`plan` / `record`): the preview spelling of a closing call is

@@ -17,7 +17,7 @@ from .store import _jsonio, meta_dir
 # ── prompt layer ─────────────────────────────────────────────────────────────
 
 def launch_dir(project: Path, cycle_id: str) -> Path:
-    """`.pf/meta/launch/<cycle>/`: the dispatch plumbing of one line, one directory per node.
+    """`.superworker/meta/launch/<cycle>/`: the dispatch plumbing of one line, one directory per node.
 
     A node's prompt file, its spawn claim and its `started` stamp all hang off here, so this is the
     one place that path is built; moving the plumbing moves all three with it.
@@ -33,7 +33,7 @@ def launch_prompt_path(project: Path, cycle_id: str, node_id: str) -> Path:
 def started_marker(project: Path, cycle_id: str, node_id: str) -> Path:
     """The stamp a successful spawn leaves: this node's session is running.
 
-    `.pf/meta/launch/<cycle>/<node>/started` -- the stamp left behind once the prompt has been taken
+    `.superworker/meta/launch/<cycle>/<node>/started` -- the stamp left behind once the prompt has been taken
     by the session. Dispatch and `--spawn` stop handing this slot to the spawner when they see it (a
     second session on the same node cannot be collected), and planning does not count it in the
     dispatch list. Reopening that slot is `cycle retry --drop`: it wipes this stamp from the state
@@ -55,7 +55,7 @@ def write_prompt_file(project: Path, cycle_id: str, node_id: str, text: str) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
@@ -70,9 +70,9 @@ def write_prompt_file(project: Path, cycle_id: str, node_id: str, text: str) -> 
 def build_prompt_text(node_id: str) -> str:
     """One dispatch prompt: the invocation line, and nothing after it.
 
-    `/pf-conduct <node_id> [pipeline]` -- the FIRST non-empty line of prompt.txt (a hard
+    `/sw-conduct <node_id> [pipeline]` -- the FIRST non-empty line of prompt.txt (a hard
     constraint). `[pipeline]`
-    ALWAYS there: it is how pf-conduct knows it is running inside the pipeline (rather than having been
+    ALWAYS there: it is how sw-conduct knows it is running inside the pipeline (rather than having been
     invoked by hand), which is what makes it end with the one closing command instead of reporting to a
     human. The node's mode is not on this line: it lives in the node's own record, which the session
     reads with `dag-manage.py info`.
@@ -81,9 +81,9 @@ def build_prompt_text(node_id: str) -> str:
     Nothing else belongs here, and nothing may be prepended as a paragraph above this line: the node's
     weight, title and spec path live in `dag-manage.py info` / `open`, the closing commands and the
     ticket form live in the skill the line invokes, and standing instructions stay out because a
-    session reads them itself with `pf instruction list`.
+    session reads them itself with `sw instruction list`.
     """
     if not node_id:
         raise ValueError('a dispatch prompt needs a node id: '
                          'it is the line the session is told to run')
-    return f'/pf-conduct {node_id} [pipeline]\n'
+    return f'/sw-conduct {node_id} [pipeline]\n'

@@ -33,7 +33,7 @@ class PoolCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         # The two marker files are the proof that "this ledger has been init-ed": a write command
         # stops without them.
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
         ledger.mkdir(parents=True, exist_ok=True)
         (ledger / '.gitignore').write_text('meta/\nworktrees/\ntemp/\n', encoding='utf-8')
         (ledger / '.gitattributes').write_text('** -text\n', encoding='utf-8')

@@ -513,7 +513,7 @@ def main() -> None:
     if next_run_at < now - MISFIRE_GRACE_MS:
         raise SystemExit(f'--at {args.at!r} is more than five minutes in the past; the desktop '
                          f'would skip it as a misfire. Name a later time, or leave --at out.')
-    title = args.title or prompt_file.parent.name or 'pf node'
+    title = args.title or prompt_file.parent.name or 'sw node'
     model_selection = selection_json(args.model)
     if model_selection != 'null' and 'reasoningLevel' not in model_selection:
         print('warning: --model carries no reasoning level, and the desktop refuses an automation '

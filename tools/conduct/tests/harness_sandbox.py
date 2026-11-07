@@ -38,7 +38,7 @@ _STUB_LINE = 'spawned: session session-stub (node session)'
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class Sandbox:
-    """A temp project with the wiring the pipeline reads: one `.pf/`, and a DAG.
+    """A temp project with the wiring the pipeline reads: one `.superworker/`, and a DAG.
 
     That one root carries both the account (`state.json`, `signals/`, `instructions.json`,
     `ideas.json`, each node's own directory) and what may be thrown away (`meta/launch/`, each
@@ -59,14 +59,14 @@ class Sandbox:
         self._tmp = tempfile.TemporaryDirectory(prefix=f'conduct-test-{_SANDBOX_SEQ:03d}-')
         self.root = Path(self._tmp.name)
         self.cli = cli
-        # The machine's own settings layer (`~/.pf/config.json`) is pointed inside the sandbox: it is
+        # The machine's own settings layer (`~/.superworker/config.json`) is pointed inside the sandbox: it is
         # the one thing a run reads from outside the project (a knob's widest layer), and what a case
-        # reads must not change with the machine it happens to run on. `PF_HOME_DIR` is the same lever
+        # reads must not change with the machine it happens to run on. `SUPERWORKER_HOME_DIR` is the same lever
         # `cases_config` pulls; this file's cases have no setUp of their own. `close()` puts it back.
         self.home = self.root / '.home'
-        self._env_home = os.environ.get('PF_HOME_DIR')
-        os.environ['PF_HOME_DIR'] = str(self.home)
-        # `.pf/` holds the account: state.json + signals/ + instructions.json + ideas.json, and
+        self._env_home = os.environ.get('SUPERWORKER_HOME_DIR')
+        os.environ['SUPERWORKER_HOME_DIR'] = str(self.home)
+        # `.superworker/` holds the account: state.json + signals/ + instructions.json + ideas.json, and
         # every node's own directory. There is no `loops/`: a cycle carries its own path now.
         ledger = init_markers(self.root)
         (ledger / 'nodes').mkdir()
@@ -89,9 +89,9 @@ class Sandbox:
         # The settings home this sandbox claimed (`__init__`) goes back either way: the next case in
         # this worker process reads its own project, not this one's leftovers.
         if self._env_home is None:
-            os.environ.pop('PF_HOME_DIR', None)
+            os.environ.pop('SUPERWORKER_HOME_DIR', None)
         else:
-            os.environ['PF_HOME_DIR'] = self._env_home
+            os.environ['SUPERWORKER_HOME_DIR'] = self._env_home
         try:
             self._tmp.cleanup()
         except OSError:
@@ -101,13 +101,13 @@ class Sandbox:
     # Fixture data: the graph, a node's directory, a forge for hand-written state. Nothing here
     # advances the pipeline -- the cycle pointer and the path only ever move through the tools.
     def write_dag(self, nodes: dict):
-        path = self.root / '.pf' / 'ideas.json'
+        path = self.root / '.superworker' / 'ideas.json'
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({'nodes': nodes}, ensure_ascii=False, indent=2),
                         encoding='utf-8')
 
     def dag(self) -> dict:
-        return json.loads((self.root / '.pf' / 'ideas.json').read_text(encoding='utf-8'))
+        return json.loads((self.root / '.superworker' / 'ideas.json').read_text(encoding='utf-8'))
 
     def add_node(self, uid, title, status='todo', mode='auto', deps=(), tags=(), weight=None):
         """One DAG node on disk. `status` is the account's own word -- `todo` by default, which is
@@ -125,7 +125,7 @@ class Sandbox:
             # standard" fallback.
             dag['nodes'][uid]['weight'] = weight
         self.write_dag(dag['nodes'])
-        node_dir = self.root / '.pf' / 'nodes' / uid
+        node_dir = self.root / '.superworker' / 'nodes' / uid
         node_dir.mkdir(parents=True, exist_ok=True)
         (node_dir / 'spec.md').write_text(f'# {title}\n\nspec body\n', encoding='utf-8')
         return uid
@@ -133,9 +133,9 @@ class Sandbox:
     def add_temp(self, uid, name='probe.txt', body='raw output\n'):
         """One file in a node's own `temp/` -- what `clean-temp` sweeps.
 
-        Scratch, so it is NOT in the node's ledger directory: `.pf/nodes/<uid>/temp/`.
+        Scratch, so it is NOT in the node's ledger directory: `.superworker/nodes/<uid>/temp/`.
         """
-        temp = self.root / '.pf' / 'nodes' / uid / 'temp'
+        temp = self.root / '.superworker' / 'nodes' / uid / 'temp'
         temp.mkdir(parents=True, exist_ok=True)
         (temp / name).write_text(body, encoding='utf-8')
         return temp
@@ -158,7 +158,7 @@ class Sandbox:
 
     def temp_dir(self, uid):
         """Where a node's generated history goes: scratch, and NOT the node's ledger directory."""
-        return self.root / '.pf' / 'nodes' / uid / 'temp'
+        return self.root / '.superworker' / 'nodes' / uid / 'temp'
 
     # ── the real tools ───────────────────────────────────────────────────────
     def _tool(self, *args, check=True, cli=None):
@@ -279,7 +279,7 @@ class Sandbox:
 
     def instruct_list(self, live_only=False):
         """The account, read straight off disk: the file IS the account (one entry per id)."""
-        items = _decode(self.root / '.pf' / 'instructions.json') or {}
+        items = _decode(self.root / '.superworker' / 'instructions.json') or {}
         items = items.get('instructions', [])
         if live_only:
             items = [i for i in items if i.get('state', 'live') == 'live']
@@ -323,14 +323,14 @@ class Sandbox:
 
     # ── a worker's report ────────────────────────────────────────────────────
     def signal_path(self, cycle_id, node_id):
-        return self.root / '.pf' / 'signals' / cycle_id / f'{node_id}.json'
+        return self.root / '.superworker' / 'signals' / cycle_id / f'{node_id}.json'
 
     def write_signal(self, cycle_id, node_id, status, summary='', outputs=None):
         """A worker's report, through the real signal.py in-process: it is a pure file writer
         whose contract is the file it leaves behind, and handoff.py calls this very function."""
         mod = _signal_module()
         return mod.write_signal(cycle_id, node_id, status, summary, outputs or {},
-                                base_dir=self.root / '.pf' / 'signals')
+                                base_dir=self.root / '.superworker' / 'signals')
 
     def handoff(self, cycle_id, node_id, status='completed', summary='', outputs=None,
                 dry_run=True, check=True):
@@ -511,7 +511,7 @@ class Sandbox:
 
     # ── readers ──────────────────────────────────────────────────────────────
     def state(self):
-        return _decode(self.root / '.pf' / 'state.json')
+        return _decode(self.root / '.superworker' / 'state.json')
 
     def cycle(self, cycle_id='cyc'):
         return [c for c in self.state()['cycles'] if c['id'] == cycle_id][0]
@@ -541,7 +541,7 @@ class Sandbox:
         return [step.get('node') for step in self.path(cycle_id)]
 
     def read_instructions(self):
-        return _decode(self.root / '.pf' / 'instructions.json') or {'instructions': []}
+        return _decode(self.root / '.superworker' / 'instructions.json') or {'instructions': []}
 
     def prompt_of(self, action):
         return Path(action['prompt']).read_text(encoding='utf-8')
@@ -592,5 +592,5 @@ class Sandbox:
         self.rewrite_state(state)
 
     def rewrite_state(self, state):
-        (self.root / '.pf' / 'state.json').write_text(
+        (self.root / '.superworker' / 'state.json').write_text(
             json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')

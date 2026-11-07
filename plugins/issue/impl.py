@@ -83,9 +83,9 @@ PROSE = {
     'issue_pool_weight': {
         'unit': '',
         'subject': 'the issue pool\'s weighted sum',
-        'where': '`pf issue weight` (the issue tool computes it itself; it does not go into a note)',
+        'where': '`sw issue weight` (the issue tool computes it itself; it does not go into a note)',
         'criterion': 'the pool\'s weighted sum the tool computes at the next close must be **below**',
-        'remedy': 'run `pf issue weight -v` to see how this number adds up, '
+        'remedy': 'run `sw issue weight -v` to see how this number adds up, '
                   'and confirm it is back under the line',
     },
 }
@@ -100,7 +100,7 @@ PROSE = {
 #: The tool that owns the pool, inside this plugin's own folder.
 POOL_TOOL = _HERE / 'tools' / 'issue_manager.py'
 
-#: The one word `pf issue weight` answers with: the verb that prints the pool's weighted sum.
+#: The one word `sw issue weight` answers with: the verb that prints the pool's weighted sum.
 WEIGHT_VERB = 'weight'
 
 
@@ -268,7 +268,7 @@ def _offer(ctx, cycle: dict, hit: dict) -> dict:
             f'and the inserted node is not pinned: which node the next dispatch picks is the usual '
             f'ranking\'s call (on a line that fills several slots, this same close may have pinned '
             f'the rest of its fill). After committing and pushing: '
-            f'`pf next --cycle {cycle.get("id")} --spawn --json`.')
+            f'`sw next --cycle {cycle.get("id")} --spawn --json`.')
     return {
         'title': hit['title'],
         'tags': [hit['tag'], *_line_tags(cycle)],
@@ -289,7 +289,7 @@ def title(hit: dict) -> str:
 def _closing_reading(hit: dict) -> str:
     """What the next judgement of this debt reads: the pool number is computed by the issue tool
     itself, and writing it in the note would be read by nobody."""
-    return ('- the issue tool computes this metric itself (`pf issue weight`); the note does '
+    return ('- the issue tool computes this metric itself (`sw issue weight`); the note does '
             'not carry it:\n'
             f'  at the next close, a number the tool computes below'
             f' {_shown(hit["at"], hit["unit"])} counts as back under the line.\n')
@@ -347,7 +347,7 @@ def spec(hit: dict, spec_path: str) -> str:
         '\n'
         '## Closing out\n'
         '\n'
-        'Follow the "closing out" section of pf-conduct: get a freshly printed note form, then '
+        'Follow the "closing out" section of sw-conduct: get a freshly printed note form, then '
         'write the note -> close -> commit and push -> dispatch.\n'
         + _closing_reading(hit) +
         f'\n(this spec lands at: {spec_path})\n'
@@ -355,8 +355,8 @@ def spec(hit: dict, spec_path: str) -> str:
 
 
 # ── the second way in: run as a script ──────────────────────────────────────
-# `plugin.json` reports the word `issue`, and `pf` answers that word by running THIS file as a
-# script (`pf`'s plugin bootstrap: the argv, `__name__` and `sys.path` entry a plain
+# `plugin.json` reports the word `issue`, and `sw` answers that word by running THIS file as a
+# script (`sw`'s plugin bootstrap: the argv, `__name__` and `sys.path` entry a plain
 # `python impl.py …` would give it). The line's remaining arguments arrive unchanged, and they go
 # to the tool inside this folder unchanged too: this door is the folder's own command, so what the
 # tool reads and where it looks for the project are exactly what they were before the tool moved in
@@ -364,7 +364,7 @@ def spec(hit: dict, spec_path: str) -> str:
 # implementation" means.
 
 def main(argv=None) -> int:
-    """`pf issue …`: this folder's own tool, with the rest of the line handed over as it came."""
+    """`sw issue …`: this folder's own tool, with the rest of the line handed over as it came."""
     rest = list(sys.argv[1:] if argv is None else argv)
     return subprocess.call([sys.executable, '-X', 'utf8', str(POOL_TOOL), *rest])
 

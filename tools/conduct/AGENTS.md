@@ -6,7 +6,8 @@
 
 - The rules live in `docs/tool-modules.md`. The conduct root holds four entries (`state-manage.py` /
   `conduct_pipeline.py` / `handoff.py` / `signal.py`) and four machine directories: `state/` (the
-  write side: cycle records, standing instructions, settings, init), `pipeline/` (advancing and
+  write side: cycle records, standing instructions, settings, init, the move out of the old record
+  directory), `pipeline/` (advancing and
   closing nodes out), `spawn/` (the machine chain that opens sessions), `ledger_merge/` (the merge
   driver's body) — plus `plugins/` at the repository root, which holds the plugins and no core
   machinery.
@@ -18,19 +19,19 @@
   timings, two actions, the reading sources it serves itself plus the ones a declaration claims, the
   shape of a command a declaration may claim, and the rules a declaration has to satisfy — and it is
   loaded by path by every reader (`plugin_host.py` asks it for actions and for the declaration
-  behind a reading, `state/knobs.py` merges the knobs they declare, `pf`'s own entry takes the words
+  behind a reading, `state/knobs.py` merges the knobs they declare, `sw`'s own entry takes the words
   they contribute), one copy per process. Its `verify()` is the validator over both sides (the
   declaration's skills, the function a claimed source says computes its number, and one real call of
-  each implementation against a stand-in project): the suite and `pf doctor` are its only callers,
+  each implementation against a stand-in project): the suite and `sw doctor` are its only callers,
   never the pipeline's route. A plugin's names live in its declaration only: adding or removing one
   is a folder move, and no core file names one. The
   declaration names, per metric, the method the generated node's session reads; that skill lives in the
   same folder, under `skills/<lang>/<method>/`, and `install.ps1` links it where the method reads it.
-- `ledger-merge.py` must stay at the conduct root: `pf`'s `merge-ledger` forwarding finds it by
-  this relative path. A project registers through `pf register`, which records
-  `pf merge-ledger %O %A %B %P` — independent of where the checkout lives, so moving it needs no
-  re-registration; when `pf` is not on PATH the absolute form is recorded first, and once PATH is
-  fixed, one `pf register` re-run swaps it back.
+- `ledger-merge.py` must stay at the conduct root: `sw`'s `merge-ledger` forwarding finds it by
+  this relative path. A project registers through `sw register`, which records
+  `sw merge-ledger %O %A %B %P` — independent of where the checkout lives, so moving it needs no
+  re-registration; when `sw` is not on PATH the absolute form is recorded first, and once PATH is
+  fixed, one `sw register` re-run swaps it back.
 - Entries reference each other by HERE-relative paths: moving a file moves the cluster and syncs
   these references; afterwards run the conduct suite (see `README.md`, Development).
 

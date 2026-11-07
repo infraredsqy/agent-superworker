@@ -23,13 +23,13 @@ What each group pins, because each fails silently otherwise:
     `when_knob` has a value in force on the chain, the line's own policies included: a layer states
     it, or the declaration gives it a factory default (a threshold with neither must not be measured
     for nothing).
-  * `PF_PLUGINS_DIR` -- the scan follows that variable and caches nothing, so a plugin installed or
+  * `SUPERWORKER_PLUGINS_DIR` -- the scan follows that variable and caches nothing, so a plugin installed or
     taken away inside one process shows up (or disappears) on the next call. The `POLICY_*` tables
     are the one import-time snapshot on this road, so nothing here asks them.
 
-Every case builds its own throwaway plugins directory and points `PF_PLUGINS_DIR` at it: the
+Every case builds its own throwaway plugins directory and points `SUPERWORKER_PLUGINS_DIR` at it: the
 shipped tree's own plugins are never asserted, because the suite has to stay green with `plugins/`
-empty. `PF_HOME_DIR` is a sandbox for the same reason -- the machine's real `~/.pf/config.json` must
+empty. `SUPERWORKER_HOME_DIR` is a sandbox for the same reason -- the machine's real `~/.superworker/config.json` must
 never be read.
 """
 
@@ -70,7 +70,7 @@ def knobs():
     in-process caller sees; the module caches no scan of its own, which is what lets a test install a
     plugin inside the process and read it back.
     """
-    package = shared_loader().load_by_path('pf_state_knobs_case', STATE_DIR / '__init__.py',
+    package = shared_loader().load_by_path('sw_state_knobs_case', STATE_DIR / '__init__.py',
                                            package_dir=STATE_DIR, register=True, reuse=True)
     return package.knobs
 
@@ -115,7 +115,7 @@ def auditor_declaration(**knobs_extra) -> dict:
         },
         'metrics': {
             'audit_minutes': {'line': 'audit_limit', 'tag': 'audit:minutes',
-                              'method': 'pf-audit', 'order': 0},
+                              'method': 'sw-audit', 'order': 0},
         },
     }
     declaration['knobs'].update(knobs_extra)
@@ -126,7 +126,7 @@ class _Sandbox(unittest.TestCase):
     """A throwaway project, home and plugins directory, and the two variables pointed at them."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-knobs-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-knobs-')
         self.addCleanup(tmp.cleanup)
         self.base = Path(tmp.name)
         self.root = self.base / 'proj'
@@ -136,8 +136,8 @@ class _Sandbox(unittest.TestCase):
         self.ledger = init_markers(self.root)
         self.plugins = self.base / 'plugins'
         self.plugins.mkdir()
-        env = mock.patch.dict(os.environ, {'PF_HOME_DIR': str(self.home),
-                                           'PF_PLUGINS_DIR': str(self.plugins)})
+        env = mock.patch.dict(os.environ, {'SUPERWORKER_HOME_DIR': str(self.home),
+                                           'SUPERWORKER_PLUGINS_DIR': str(self.plugins)})
         env.start()
         self.addCleanup(env.stop)
 
@@ -155,7 +155,7 @@ class _Sandbox(unittest.TestCase):
 
     def cli(self, *args, plugins: Path | None = None):
         env = _child_env()
-        env['PF_PLUGINS_DIR'] = str(self.plugins if plugins is None else plugins)
+        env['SUPERWORKER_PLUGINS_DIR'] = str(self.plugins if plugins is None else plugins)
         return run_argv([STATE_MANAGE, *args], cwd=self.root, env=env, check=False)
 
 
@@ -283,8 +283,8 @@ class TestKnobChain(_Sandbox):
         self.assertEqual((None, 'builtin'), knobs_mod.resolve(str(self.root))['audit_limit'],
                          'a declared threshold has no factory value')
 
-        (self.home / '.pf').mkdir()
-        (self.home / '.pf' / 'config.json').write_text('{"audit_limit": 5}', encoding='utf-8')
+        (self.home / '.superworker').mkdir()
+        (self.home / '.superworker' / 'config.json').write_text('{"audit_limit": 5}', encoding='utf-8')
         self.assertEqual((5, 'global'), knobs_mod.resolve(str(self.root))['audit_limit'])
 
         self.write_project({'audit_limit': 4})
@@ -332,8 +332,8 @@ class TestKnobChain(_Sandbox):
     def test_the_label_names_the_layer(self):
         source_label = knobs().source_label
         self.assertEqual('factory default', source_label('builtin'))
-        self.assertEqual('project .pf/config.json', source_label('project'))
-        self.assertEqual('global ~/.pf/config.json', source_label('global'))
+        self.assertEqual('project .superworker/config.json', source_label('project'))
+        self.assertEqual('global ~/.superworker/config.json', source_label('global'))
         self.assertEqual('cycle c1', source_label('cycle', cycle=self._record()))
         self.assertEqual('cycle c1', source_label('cycle', cycle='c1'),
                          'a label takes the record or the id and says the same thing')
@@ -389,7 +389,7 @@ class TestKnobTicketReadings(_Sandbox):
 
 
 class TestKnobPluginsDir(_Sandbox):
-    """`PF_PLUGINS_DIR`: the scan follows the variable, caches nothing, and is empty for no folders."""
+    """`SUPERWORKER_PLUGINS_DIR`: the scan follows the variable, caches nothing, and is empty for no folders."""
 
     def test_installing_and_removing_a_plugin_changes_the_next_call(self):
         self.assertNotIn('audit_limit', knobs().specs())
@@ -403,7 +403,7 @@ class TestKnobPluginsDir(_Sandbox):
 
     def test_a_missing_plugins_directory_is_zero_plugins_not_an_error(self):
         absent = self.base / 'absent'
-        with mock.patch.dict(os.environ, {'PF_PLUGINS_DIR': str(absent)}):
+        with mock.patch.dict(os.environ, {'SUPERWORKER_PLUGINS_DIR': str(absent)}):
             self.assertEqual(SETTING_NAMES, set(knobs().specs()) & SETTING_NAMES)
         self.assertFalse(absent.exists(), 'reading the scan must not create the directory')
 

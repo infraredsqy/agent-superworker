@@ -112,7 +112,7 @@ def _relative(path: Path) -> str:
 
 
 def _init_ledger(root: Path) -> Path:
-    """A `.pf/` carrying the two files `init` writes, plus the issue tool's own directory."""
+    """A `.superworker/` carrying the two files `init` writes, plus the issue tool's own directory."""
     ledger = init_markers(root)
     (ledger / 'issues').mkdir(parents=True, exist_ok=True)
     return ledger
@@ -147,7 +147,7 @@ class TestOneSharedDoor(unittest.TestCase):
 
         elsewhere = sorted({_relative(path) for path, found in sites.items() for node in found
                             if not (node.args and isinstance(node.args[0], ast.Constant)
-                                    and node.args[0].value == 'pf_shared_loader')})
+                                    and node.args[0].value == 'sw_shared_loader')})
         self.assertEqual(['shared/loader.py'], elsewhere,
                          'a file loads a module without going through tools/shared/loader.py')
 
@@ -185,7 +185,7 @@ class TestOneSharedDoor(unittest.TestCase):
         """The ledger's contract has one source: `shared/ledger.py`.
 
         The judgement lands on three things: the **assignment** of those two names, the string
-        constants of those two **spellings** (`.pf` and the settings file's name), and the
+        constants of those two **spellings** (`.superworker` and the settings file's name), and the
         definition of the worktree-to-main-tree rule. Elsewhere they may only be taken by reference
         (`from .store import LEDGER_NAME`, store's `__getattr__`), never carried along -- once
         carried, changing one place is not enough, and that is what this discipline is here to
@@ -200,8 +200,8 @@ class TestOneSharedDoor(unittest.TestCase):
                              'second spelling to keep aligned with the source')
 
         with self.subTest(judged='the two spellings as string constants'):
-            self.assertEqual(['shared/ledger.py:.pf', 'shared/ledger.py:config.json'],
-                             _literal_owners(('.pf', 'config.json')),
+            self.assertEqual(['shared/ledger.py:.superworker', 'shared/ledger.py:config.json'],
+                             _literal_owners(('.superworker', 'config.json')),
                              'these two spellings are assembled as paths somewhere else (only the '
                              'whole value of a string constant counts -- prose in a help text that '
                              'mentions a path falls outside the judgement)')
@@ -254,7 +254,7 @@ class TestOneSharedDoor(unittest.TestCase):
     def test_git_is_run_from_one_place(self):
         """`subprocess.run(['git', ...])` has one call site: `shared/gitcmd.py`.
 
-        The three places that ask git (`pf doctor` asks about the merge driver, `init` asks whether
+        The three places that ask git (`sw doctor` asks about the merge driver, `init` asks whether
         this is a repo, a parallel fork asks whether a branch is taken) ask the same question in the
         same spelling: cwd, decoding, whether to raise. Written out three times, one change to the
         decoding or the timeout lands in only one of them; gathered into one, asking git has a
@@ -292,7 +292,7 @@ class TestOneSharedDoor(unittest.TestCase):
 
 
 class TestOneReaderOneWording(Base):
-    """A `.pf/` record that cannot be read: the same words, whichever tool asks."""
+    """A `.superworker/` record that cannot be read: the same words, whichever tool asks."""
 
     def _broken(self, root: Path, *parts, body=b'\xff\xfe not utf-8 at all'):
         path = root.joinpath(*parts)
@@ -302,7 +302,7 @@ class TestOneReaderOneWording(Base):
 
     def test_the_pipeline_reads_a_non_utf8_record_with_the_shared_words(self):
         sb = self.make()
-        self._broken(sb.root, '.pf', 'state.json')
+        self._broken(sb.root, '.superworker', 'state.json')
 
         with self.assertRaises(ValueError) as caught:
             load_pipeline().load_state(sb.root)
@@ -311,11 +311,11 @@ class TestOneReaderOneWording(Base):
         self.assertIn('state.json is not valid UTF-8', str(caught.exception))
 
     def test_the_graph_tool_refuses_a_non_utf8_graph_instead_of_dying(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-nonutf8-dag-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-nonutf8-dag-')
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         _init_ledger(root)
-        self._broken(root, '.pf', 'ideas.json')
+        self._broken(root, '.superworker', 'ideas.json')
 
         proc = run_dag(root, 'list', check=False)
 
@@ -325,11 +325,11 @@ class TestOneReaderOneWording(Base):
 
     @requires_plugin('issue')
     def test_the_pool_tool_refuses_a_non_utf8_pool_instead_of_dying(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-nonutf8-issue-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-nonutf8-issue-')
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         _init_ledger(root)
-        self._broken(root, '.pf', 'issues', 'issues.json')
+        self._broken(root, '.superworker', 'issues', 'issues.json')
 
         proc = _run_proc(root, [ISSUE_MANAGE, 'list'], check=False)
 
@@ -338,11 +338,11 @@ class TestOneReaderOneWording(Base):
         self.assertNotIn('Traceback', proc.stderr)
 
     def test_a_graph_that_is_not_json_keeps_the_validate_hint(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-badjson-dag-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-badjson-dag-')
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         _init_ledger(root)
-        self._broken(root, '.pf', 'ideas.json', body=b'{not json')
+        self._broken(root, '.superworker', 'ideas.json', body=b'{not json')
 
         proc = run_dag(root, 'list', check=False)
 
@@ -358,7 +358,7 @@ class TestTheMarkerWaitsOutAReader(Base):
     def test_a_reader_that_lets_go_mid_retry_still_gets_the_marker(self):
         sb = self.make()
         handoff = _fresh_module('handoff_marker_case', HANDOFF_PY)
-        marker = sb.root / '.pf' / 'meta' / 'CONDUCT-CALLBACK-FAILED-cyc.json'
+        marker = sb.root / '.superworker' / 'meta' / 'CONDUCT-CALLBACK-FAILED-cyc.json'
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text('{"stale": true}', encoding='utf-8')
         held = open(marker, 'r', encoding='utf-8')
@@ -396,11 +396,11 @@ class TestTheMarkerContract(Base):
                          'one place misses the other')
 
     def test_the_spawners_never_assemble_the_marker_path(self):
-        """None of `.pf` / `meta` / the file-name template belongs on the spawner side: argv hands
+        """None of `.superworker` / `meta` / the file-name template belongs on the spawner side: argv hands
         the landing spot in."""
         for path in sorted(SPAWN_DIR.glob('*.ps1')):
             source = path.read_text(encoding='utf-8')
-            for gone in ('.pf', 'meta', 'CONDUCT-CALLBACK-FAILED'):
+            for gone in ('.superworker', 'meta', 'CONDUCT-CALLBACK-FAILED'):
                 self.assertNotIn(gone, source, f'{path.name} assembles the marker landing spot again')
 
     def test_one_shell_serves_both_spawners_and_the_hosts_stay_explicit(self):
@@ -425,7 +425,7 @@ class TestTheMarkerContract(Base):
         self.assertNotIn('-NoVerify', dsh)
 
     def test_the_marker_path_follows_the_ledger_name(self):
-        """Rename `.pf` and the marker follows the ledger -- the dispatch side has no spelling of
+        """Rename `.superworker` and the marker follows the ledger -- the dispatch side has no spelling of
         its own any more.
 
         The name's source is `shared/ledger.py`, so a rename happens there: `marker.py` computes the
@@ -433,20 +433,20 @@ class TestTheMarkerContract(Base):
         a second copy free to drift.
         """
         sb = self.make()
-        ledger = _shared('pf_shared_ledger', 'ledger.py')
+        ledger = _shared('sw_shared_ledger', 'ledger.py')
         marker = _marker_module()
         handoff = _fresh_module('handoff_marker_ledger_case', HANDOFF_PY)
         self.addCleanup(setattr, ledger, 'LEDGER_NAME', ledger.LEDGER_NAME)
-        ledger.LEDGER_NAME = '.pf-moved'
+        ledger.LEDGER_NAME = '.sw-moved'
 
         with contextlib.redirect_stderr(io.StringIO()):
             handoff._write_marker(sb.root, 'cyc', 'advance', 'the ledger moved')
 
         path = marker.marker_path(sb.root, 'cyc')
-        self.assertEqual('.pf-moved', path.parent.parent.name)
+        self.assertEqual('.sw-moved', path.parent.parent.name)
         self.assertTrue(path.is_file(),
                         'the marker landed where the tool does not read (the path that assembles '
-                        '`.pf` itself)')
+                        '`.superworker` itself)')
 
     def test_the_two_writers_leave_one_shape(self):
         """The marker the `handoff` beat writes: the same shape and the same sentence as the source,
@@ -498,9 +498,9 @@ class TestOneWriterPerRecord(Base):
         signal_mod = _fresh_module('conduct_signal_record_case', SIGNAL_PY)
 
         signal_mod.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'},
-                                base_dir=sb.root / '.pf' / 'signals')
+                                base_dir=sb.root / '.superworker' / 'signals')
 
-        sig = json.loads((sb.root / '.pf' / 'signals' / 'cyc' / f'{NODE}.json')
+        sig = json.loads((sb.root / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json')
                          .read_text(encoding='utf-8'))
         self.assertEqual(['cycle', 'node', 'outputs', 'status', 'summary', 'timestamp'], sorted(sig))
         self.assertEqual('done', sig['summary'])
@@ -519,21 +519,21 @@ class TestOneWriterPerRecord(Base):
         other = self.make()
         signal_mod = _fresh_module('conduct_signal_base_dir_case', SIGNAL_PY)
         store = signal_mod._store()
-        store.bind_paths(sb.root / '.pf')
+        store.bind_paths(sb.root / '.superworker')
 
         signal_mod.write_signal('cyc', NODE, 'completed', 'B', {},
-                                base_dir=other.root / '.pf' / 'signals')
+                                base_dir=other.root / '.superworker' / 'signals')
 
-        self.assertTrue((other.root / '.pf' / 'signals' / 'cyc' / f'{NODE}.json').is_file(),
+        self.assertTrue((other.root / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json').is_file(),
                         'the explicit-landing-spot write did not land in the directory it named')
-        self.assertFalse((sb.root / '.pf' / 'signals' / 'cyc' / f'{NODE}.json').exists(),
+        self.assertFalse((sb.root / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json').exists(),
                          'the explicit-landing-spot write went into the project the binding points at')
-        self.assertEqual(store.LEDGER_DIR, sb.root / '.pf', 'this write moved this copy\'s binding')
+        self.assertEqual(store.LEDGER_DIR, sb.root / '.superworker', 'this write moved this copy\'s binding')
 
         # The binding is still where it was: the write that names no landing spot lands in the
         # project the binding points at.
         store._write_signal('cyc', NODE, 'failed', 'A', {})
-        landed = json.loads((sb.root / '.pf' / 'signals' / 'cyc' / f'{NODE}.json')
+        landed = json.loads((sb.root / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json')
                             .read_text(encoding='utf-8'))
         self.assertEqual(['A', 'failed'], [landed['summary'], landed['status']])
 
@@ -545,11 +545,11 @@ class TestOneWriterPerRecord(Base):
         with contextlib.redirect_stderr(stderr):
             with self.assertRaises(SystemExit) as caught:
                 signal_mod.write_signal('cyc', NODE, 'completed', 'done', ['not', 'an', 'object'],
-                                        base_dir=sb.root / '.pf' / 'signals')
+                                        base_dir=sb.root / '.superworker' / 'signals')
 
         self.assertEqual(1, caught.exception.code)
         self.assertIn('outputs must be a JSON object', stderr.getvalue())
-        self.assertFalse((sb.root / '.pf' / 'signals' / 'cyc' / f'{NODE}.json').exists(),
+        self.assertFalse((sb.root / '.superworker' / 'signals' / 'cyc' / f'{NODE}.json').exists(),
                          'a refused ticket wrote a file')
 
     def test_the_worker_path_still_lands_the_ticket(self):

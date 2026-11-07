@@ -46,7 +46,7 @@ def shared_loader():
     """
     global _SHARED_LOADER
     if _SHARED_LOADER is None:
-        _SHARED_LOADER = _fresh_module('pf_shared_loader', SHARED_DIR / 'loader.py')
+        _SHARED_LOADER = _fresh_module('sw_shared_loader', SHARED_DIR / 'loader.py')
     return _SHARED_LOADER
 
 
@@ -80,11 +80,11 @@ class SharedCase(unittest.TestCase):
     """
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-shared-case-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-shared-case-')
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
 
     def make(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-shared-project-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-shared-project-')
         self.addCleanup(tmp.cleanup)
         return _Sandbox(Path(tmp.name))

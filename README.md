@@ -1,22 +1,22 @@
-# agent-pathfinder
+# agent-superworker
 
 English | [中文](README.zh.md)
 
-`agent-pathfinder` (`pf`) is a command that keeps a project's todo graph, and a pipeline that
+`agent-superworker` (`sw`) is a command that keeps a project's todo graph, and a pipeline that
 hands one node of it at a time to a coding agent.
 
 Ideas go into a DAG: a node is a piece of work, an edge is a dependency. A **cycle** takes the
 node that matters most right now, gives it to a fresh agent session, and records what came back.
-The session works under the `pf-conduct` skill — prepare, execute, independent review, fix, close
+The session works under the `sw-conduct` skill — prepare, execute, independent review, fix, close
 — and hands back one line saying whether it delivered.
 
-Everything the pipeline knows lives in `.pf/`.
+Everything the pipeline knows lives in `.superworker/`.
 
 ## Status
 
 Early, and moving fast. Expect breaking changes, and expect file formats to shift under you.
 
-`pf next --spawn` and `pf dispatch` start real agent sessions that spend real tokens.
+`sw next --spawn` and `sw dispatch` start real agent sessions that spend real tokens.
 
 ## Install
 
@@ -24,21 +24,25 @@ Needs Python 3.10+, git, and PowerShell on Windows. From this checkout:
 
 ```pwsh
 git clone https://github.com/infraredsqy/agent-pathfinder/
-cd agent-pathfinder
-pwsh -File install.ps1
+cd agent-superworker
+pwsh -File install.ps1 -SkillsFor none    # no skill links; -SkillsFor zcode links them
 ```
 
-It links the `pf-*` skills into `~/.agents/skills` and puts `tools/bin` on your `PATH` — dropping
-any other checkout's entry, so `pf` resolves here. Re-run it after moving the checkout; it is
-idempotent, and its closing self-check includes `pf doctor`.
+The script has no default host, because a skill root belongs to one: `-SkillsFor zcode` links the
+`sw-*` skills into `~/.agents/skills` (what ZCode reads), `-SkillsFor none` only puts `tools/bin` on
+your `PATH`. `-SkillsFor dsh` is refused on purpose — the DSH plugin installs its own skills, in
+DSH's shape, into `~/.dsh/skills`. Both hosts' installs drop any other checkout's `PATH` entry, so
+`sw` resolves here; re-run the script after moving the checkout, it is idempotent, and its closing
+self-check includes `sw doctor`. `-Check` prints every link, `PATH` and record change it would make
+and writes nothing.
 
 The skills ship in both languages — one language per install, because a method name has exactly one
 skill. The default is English; add `-Lang zh` for the Chinese ones. The choice is recorded in
-`~/.pf/lang.txt`, so a later re-run repairs the install without switching the language you picked.
+`~/.superworker/lang.txt`, so a later re-run repairs the install without switching the language you picked.
 
 ```pwsh
-pf version     # where this checkout lives
-pf doctor      # whether this checkout and the current project look right
+sw version     # where this checkout lives
+sw doctor      # whether this checkout and the current project look right
 ```
 
 ## Use it
@@ -46,20 +50,20 @@ pf doctor      # whether this checkout and the current project look right
 In the project you want to work on:
 
 ```pwsh
-pf init                                        # put .pf/ in place, register the merge driver
-pf dag add "billing page" --tags coding
-pf dag add "rate-limit the API" --depends-on <uuid>
-pf dag list                                    # sorted by urgency × importance
+sw init                                        # put .superworker/ in place, register the merge driver
+sw dag add "billing page" --tags coding
+sw dag add "rate-limit the API" --depends-on <uuid>
+sw dag list                                    # sorted by urgency × importance
 ```
 
 Then start a line and let it open the first session:
 
 ```pwsh
-pf cycle start billing --title "billing" --tags coding
-pf next --spawn
+sw cycle start billing --title "billing" --tags coding
+sw next --spawn
 ```
 
-`pf next` is the one entry point: bare, it drives the line to its next action; `--plan` shows the
+`sw next` is the one entry point: bare, it drives the line to its next action; `--plan` shows the
 same answer without writing anything.
 
 ## Skills
@@ -68,14 +72,23 @@ Worker sessions are skills, linked into `~/.agents/skills`:
 
 | Skill | What it does |
 |---|---|
-| `pf-route` | talk a request into a node; edit and read the graph |
-| `pf-conduct` | run one node: prepare, execute, independent review, fix, close |
-| `pf-instruct` | record a standing instruction that later sessions follow |
+| `sw-route` | talk a request into a node; edit and read the graph |
+| `sw-conduct` | run one node: prepare, execute, independent review, fix, close |
+| `sw-instruct` | record a standing instruction that later sessions follow |
 
-Four more skills come with the plugins — `pf-issue-scan`, `pf-issue-discuss`, `pf-issue-repair` and
-`pf-test-audit`. A plugin's skills live in that plugin's folder (`plugins/<name>/skills/`) and are
-linked and removed with the plugin, so `pf doctor` is where a checkout's own set is listed. A skill
-names no skill from another plugin — it says "run `pf doctor`" instead.
+Four more skills come with the plugins — `sw-issue-scan`, `sw-issue-discuss`, `sw-issue-repair` and
+`sw-test-audit`. A plugin's skills live in that plugin's folder (`plugins/<name>/skills/`) and are
+linked and removed with the plugin, so `sw doctor` is where a checkout's own set is listed. A skill
+names no skill from another plugin — it says "run `sw doctor`" instead.
+
+## Relationship to DSH
+
+Another implementation of the same record layer ships with DeepSeek Harness as the
+`dsh-superworker` plugin: one `.superworker/` layout, one byte rule for the records, one merge
+driver, so a project's records can be read and written from either side. The words are not shared —
+DSH carries its own set, this command carries the one `sw --help` prints — and a word DSH has and
+this command does not is added here when a skill here needs it. The skill trees are separate too:
+the plugin writes DSH's into `~/.dsh/skills`, and `skills/` here holds the command-line ones.
 
 ## Development
 

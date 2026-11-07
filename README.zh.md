@@ -1,18 +1,18 @@
-# agent-pathfinder
+# agent-superworker
 
 [English](README.md) | 中文
 
-`agent-pathfinder`（`pf`）由一条命令与一条执行管线构成：前者维护项目的待办依赖图，后者按节点将工作逐个交付给一个 agent 会话。
+`agent-superworker`（`sw`）由一条命令与一条执行管线构成：前者维护项目的待办依赖图，后者按节点将工作逐个交付给一个 agent 会话。
 
-想法以节点形式记录在一张有向无环图（DAG）中：节点代表一项待办，边代表依赖关系。一条 **cycle**（执行线）选取当前优先级最高的节点，交由一个新开的会话处理，并记录其返回的结果。会话在 `pf-conduct` 技能下完成准备、执行、独立复审、修复与收尾各阶段，最后提交一行结论，说明是否完成交付。
+想法以节点形式记录在一张有向无环图（DAG）中：节点代表一项待办，边代表依赖关系。一条 **cycle**（执行线）选取当前优先级最高的节点，交由一个新开的会话处理，并记录其返回的结果。会话在 `sw-conduct` 技能下完成准备、执行、独立复审、修复与收尾各阶段，最后提交一行结论，说明是否完成交付。
 
-管线所掌握的全部状态均存放于 `.pf/` 目录。
+管线所掌握的全部状态均存放于 `.superworker/` 目录。
 
 ## 项目状态
 
 本项目仍处于快速迭代期，可能包含不兼容的变更，文件格式亦可能随之调整。
 
-`pf next --spawn` 与 `pf dispatch` 会启动真实的 agent 会话，并产生实际的 token 消耗。
+`sw next --spawn` 与 `sw dispatch` 会启动真实的 agent 会话，并产生实际的 token 消耗。
 
 ## 安装
 
@@ -20,17 +20,17 @@
 
 ```pwsh
 git clone https://github.com/infraredsqy/agent-pathfinder/
-cd agent-pathfinder
-pwsh -File install.ps1
+cd agent-superworker
+pwsh -File install.ps1 -SkillsFor none    # 不建技能链接；-SkillsFor zcode 才链进 ~/.agents/skills
 ```
 
-该脚本将 `pf-*` 技能链接至 `~/.agents/skills`，把 `tools/bin` 加入 `PATH`（同时摘掉其它 checkout 的那一条，`pf` 只解析到本仓库）。仓库位置变更后重新执行即可，脚本具备幂等性，收尾自检里包含一次 `pf doctor`。
+脚本没有缺省宿主，因为技能根归某一家：`-SkillsFor zcode` 把 `sw-*` 技能链进 `~/.agents/skills`（ZCode 读的那一处），`-SkillsFor none` 只把 `tools/bin` 加入 `PATH`。`-SkillsFor dsh` 是有意拒绝的——DSH 那边由插件把 DSH 形状的技能装进 `~/.dsh/skills`。两种装法都会摘掉其它 checkout 的 `PATH` 条目，所以 `sw` 只解析到本仓库；仓库位置变更后重新执行即可，脚本具备幂等性，收尾自检里包含一次 `sw doctor`。`-Check` 把将要建的链接、`PATH` 与记录逐条打印出来，一个字节都不写。
 
-技能分英文与中文两套，一次只装一套（一个方法名只有一份技能）：缺省装英文，`-Lang zh` 装中文那一套。选择记在 `~/.pf/lang.txt`，之后重跑修复不会把语言换掉。
+技能分英文与中文两套，一次只装一套（一个方法名只有一份技能）：缺省装英文，`-Lang zh` 装中文那一套。选择记在 `~/.superworker/lang.txt`，之后重跑修复不会把语言换掉。
 
 ```pwsh
-pf version     # 当前 checkout 的位置
-pf doctor      # 检查本仓库与当前项目的状态
+sw version     # 当前 checkout 的位置
+sw doctor      # 检查本仓库与当前项目的状态
 ```
 
 ## 使用
@@ -38,20 +38,20 @@ pf doctor      # 检查本仓库与当前项目的状态
 在目标项目的根目录下执行：
 
 ```pwsh
-pf init                                        # 创建 .pf/，并登记合并驱动
-pf dag add "billing page" --tags coding
-pf dag add "rate-limit the API" --depends-on <uuid>
-pf dag list                                    # 按 urgency × importance 排序
+sw init                                        # 创建 .superworker/，并登记合并驱动
+sw dag add "billing page" --tags coding
+sw dag add "rate-limit the API" --depends-on <uuid>
+sw dag list                                    # 按 urgency × importance 排序
 ```
 
 随后创建一条执行线，并由其启动首个会话：
 
 ```pwsh
-pf cycle start billing --title "billing" --tags coding
-pf next --spawn
+sw cycle start billing --title "billing" --tags coding
+sw next --spawn
 ```
 
-`pf next` 是唯一入口：直接执行将推进至下一个动作；`--plan` 给出同样的结果，但不写入任何内容。
+`sw next` 是唯一入口：直接执行将推进至下一个动作；`--plan` 给出同样的结果，但不写入任何内容。
 
 ## 技能
 
@@ -59,11 +59,15 @@ pf next --spawn
 
 | 技能 | 职责 |
 |---|---|
-| `pf-route` | 将需求梳理为节点；维护与查询依赖图 |
-| `pf-conduct` | 完成单个节点：准备、执行、独立复审、修复、收尾 |
-| `pf-instruct` | 记录一条约束，供后续会话遵循 |
+| `sw-route` | 将需求梳理为节点；维护与查询依赖图 |
+| `sw-conduct` | 完成单个节点：准备、执行、独立复审、修复、收尾 |
+| `sw-instruct` | 记录一条约束，供后续会话遵循 |
 
-插件还自带四张技能：`pf-issue-scan`、`pf-issue-discuss`、`pf-issue-repair`、`pf-test-audit`。插件的技能放在该插件自己的文件夹里（`plugins/<name>/skills/`），随插件一起装、卸，所以本仓库装了哪些，以 `pf doctor` 列出来的为准。别的插件带的技能不点名——要提它，说「跑 `pf doctor`」。
+插件还自带四张技能：`sw-issue-scan`、`sw-issue-discuss`、`sw-issue-repair`、`sw-test-audit`。插件的技能放在该插件自己的文件夹里（`plugins/<name>/skills/`），随插件一起装、卸，所以本仓库装了哪些，以 `sw doctor` 列出来的为准。别的插件带的技能不点名——要提它，说「跑 `sw doctor`」。
+
+## 与 DSH 的关系
+
+同一套记录层另有一份实现在 DeepSeek Harness 里，就是 `dsh-superworker` 插件：同一个 `.superworker/` 布局、同一套记录字节规则、同一个合并驱动，所以一个项目的记录两家都能读、都能写。词面不共用——DSH 有它自己的一套，本命令只有 `sw --help` 印出来的那套——DSH 有而这里没有的词，等这里的技能需要它时再补。技能树也是分开的：插件把 DSH 那套写进 `~/.dsh/skills`，本仓库的 `skills/` 放的是命令行这一套。
 
 ## 开发
 

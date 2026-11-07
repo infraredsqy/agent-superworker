@@ -1,19 +1,19 @@
 """The parallel-mode fork: one worktree per node, and the record that proves it was closed out.
 
 Parallel mode puts a node's code work into the main tree's
-`.pf/worktrees/<node short id>` checkout, on branch `pf/<node short id>` (a git ref name may not start
-with a dot, so the branch drops that dot from the directory name); `.pf/` itself always lands in the
+`.superworker/worktrees/<node short id>` checkout, on branch `sw/<node short id>` (a git ref name may not start
+with a dot, so the branch drops that dot from the directory name); `.superworker/` itself always lands in the
 main tree. Both ends are tool gates:
 
     fork-worktree <node_id>   at the end of prep: check the main tree is clean and the short id is
                               free, then `git worktree add`, and write
-                              `.pf/meta/FORK-<short id>.json` (node / branch / head / at)
+                              `.superworker/meta/FORK-<short id>.json` (node / branch / head / at)
     next --after <node_id>    at the start of the close: a node with a FORK record on disk may only
                               be settled once worktree and branch are both deleted (the merge-back is
                               cleaned up); once the gate passes, the record is taken off
 
-Why the record lives in `.pf/meta/`: it is this run's process material, not something to keep, and
-`.pf/.gitignore` keeps `meta/` out of the repository in both modes. With no record the close does not
+Why the record lives in `.superworker/meta/`: it is this run's process material, not something to keep, and
+`.superworker/.gitignore` keeps `meta/` out of the repository in both modes. With no record the close does not
 touch one byte more -- that is the regression floor; with a record, an unfinished merge-back is refused
 loudly, so two lines do not step on each other in the main tree.
 
@@ -38,21 +38,21 @@ def node_short_id(node_id: str) -> str:
 
 
 def worktree_path(project: Path, node_id: str) -> Path:
-    """One node's parallel worktree checkout: `<project>/.pf/worktrees/<short id>`."""
+    """One node's parallel worktree checkout: `<project>/.superworker/worktrees/<short id>`."""
     return _ledger().ledger_dir_for(project) / 'worktrees' / node_short_id(node_id)
 
 
 def worktree_branch(node_id: str) -> str:
-    """One node's parallel exit branch: `pf/<short id>`.
+    """One node's parallel exit branch: `sw/<short id>`.
 
     The branch name comes from the ledger directory's name: a git ref name may not start with a dot,
-    so the branch prefix for the directory `.pf/` is `pf/`.
+    so the branch prefix for the directory `.superworker/` is `sw/`.
     """
-    return f'pf/{node_short_id(node_id)}'
+    return f'sw/{node_short_id(node_id)}'
 
 
 def fork_record_path(project: Path, node_id: str) -> Path:
-    """A fork's one-off record: `<project>/.pf/meta/FORK-<short id>.json`."""
+    """A fork's one-off record: `<project>/.superworker/meta/FORK-<short id>.json`."""
     return _ledger().meta_dir_for(project) / f'FORK-{node_short_id(node_id)}.json'
 
 
@@ -90,7 +90,7 @@ def cmd_fork_worktree(node_id: str) -> None:
 
     # `--untracked-files=no`: what blocks a fork is TRACKED work in flight (another line's
     # merge-back or commit), not untracked plumbing -- the dispatch prompts this very line just
-    # wrote sit under `.pf/meta/`, which `.pf/.gitignore` keeps out of the tree's business.
+    # wrote sit under `.superworker/meta/`, which `.superworker/.gitignore` keeps out of the tree's business.
     status = _git(project, 'status', '--porcelain', '--untracked-files=no')
     if status.returncode != 0:
         print(f'Error: could not read the main tree\'s git status: {status.stderr.strip()}',

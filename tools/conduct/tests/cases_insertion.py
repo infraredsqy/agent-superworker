@@ -3,7 +3,7 @@
 Two things are pinned here, and they are the two halves of one claim:
 
   * **it works for a source that is not the shipped plugin** -- the fixture below is a hand-written
-    plugin folder (a declaration plus an implementation) plugged in through `PF_PLUGINS_DIR`, and
+    plugin folder (a declaration plus an implementation) plugged in through `SUPERWORKER_PLUGINS_DIR`, and
     it gets the graph edit without re-implementing any of it: the uuid, the `spec.md` and the two
     edges all come out of `insertion.py`;
   * **there is only one implementation of each step** -- a second one reads perfectly well on its

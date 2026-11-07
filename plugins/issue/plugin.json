@@ -28,6 +28,7 @@
     },
     "issue_pool_weight_limit": {
       "kind": "number",
+      "default": null,
       "summary": "the issue pool's weighted sum the next close must read below"
     }
   },
@@ -40,7 +41,7 @@
     "issue_pool_weight": {
       "line": "issue_pool_weight_limit",
       "tag": "issue:issue_pool_weight",
-      "method": "pf-issue-repair"
+      "method": "sw-issue-repair"
     }
   }
 }

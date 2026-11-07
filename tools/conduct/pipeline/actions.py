@@ -290,7 +290,7 @@ def _ticket_wait(cycle: dict, node_id: str, holding=None) -> dict:
     are two steps, because the worker still has to commit and push what it made before the next
     session boots on the same tree.
     """
-    close_with = f'pf next --after {node_id} --json'
+    close_with = f'sw next --after {node_id} --json'
     others = [x for x in (holding or []) if x != node_id]
     tail = (f' (still holding {", ".join(x[:8] for x in others)}, their notes are collected as they '
             f'arrive)' if others else '')
@@ -303,7 +303,7 @@ def _ticket_wait(cycle: dict, node_id: str, holding=None) -> dict:
                 f'closes it, and then tells you whether the next slot is `dispatch` or '
                 f'`stop_pipeline`).{tail}'
                 f' Dispatch comes after this run\'s commit and push: '
-                f'`pf dispatch {cycle["id"]}`.',
+                f'`sw dispatch {cycle["id"]}`.',
     }
 
 
@@ -321,7 +321,7 @@ def _sessions_wait(cycle: dict, node_ids: list, holding=None) -> dict:
     return {'action': 'wait', 'cycle': cycle['id'], 'node_id': node_ids[0], 'commands': [],
             'note': f'{names}: their sessions are already open (the `started` stamp is on disk) -- '
                     f'there is nothing to dispatch, so wait for their notes and never poll. '
-                    f'Their own closes: pf next --after <node id> --json.{tail}'}
+                    f'Their own closes: sw next --after <node id> --json.{tail}'}
 
 
 def _retry_wait(cycle: dict, node_id: str, holding=None) -> dict:
@@ -338,8 +338,8 @@ def _retry_wait(cycle: dict, node_id: str, holding=None) -> dict:
     return {'action': 'wait', 'cycle': cycle['id'], 'node_id': node_id, 'commands': [],
             'note': f'The note for {node_id[:8]} is still pending (no verdict yet, or somebody '
                     f'cleared the note to retry); do not poll. Three commands unwind it: '
-                    f'pf cycle retry {cycle["id"]} {node_id} --drop --summary "retry", then '
-                    f'pf cycle hold {cycle["id"]} {node_id}, then pf next --spawn --json.'
+                    f'sw cycle retry {cycle["id"]} {node_id} --drop --summary "retry", then '
+                    f'sw cycle hold {cycle["id"]} {node_id}, then sw next --spawn --json.'
                     f'{tail}'}
 
 

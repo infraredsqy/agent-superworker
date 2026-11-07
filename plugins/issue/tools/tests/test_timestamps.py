@@ -35,7 +35,7 @@ SHAPE = r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z'
 
 
 def load_clock():
-    spec = importlib.util.spec_from_file_location('pf_shared_clock_case', SHARED / 'clock.py')
+    spec = importlib.util.spec_from_file_location('sw_shared_clock_case', SHARED / 'clock.py')
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -51,7 +51,7 @@ class TimestampCase(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix='issue-clock-'))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
         ledger.mkdir(parents=True, exist_ok=True)
         (ledger / '.gitignore').write_text('meta/\n', encoding='utf-8')
         (ledger / '.gitattributes').write_text('** -text\n', encoding='utf-8')
@@ -64,7 +64,7 @@ class TimestampCase(unittest.TestCase):
         return proc.stdout
 
     def row(self, issue_id: str) -> dict:
-        pool = json.loads((self.root / '.pf' / 'issues' / 'issues.json').read_text(encoding='utf-8'))
+        pool = json.loads((self.root / '.superworker' / 'issues' / 'issues.json').read_text(encoding='utf-8'))
         return pool['issues'][issue_id]
 
     def check(self, value: str, label: str):

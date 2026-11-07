@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Manage the conduct pipeline's state: one directory, `.pf/`, per project.
+"""Manage the conduct pipeline's state: one directory, `.superworker/`, per project.
 
 This is the tool's one writer: the cycle book, the signals and the standing instructions all go out
 through here, so a session never reads or writes raw JSON itself. (The graph is `dag-manage.py`'s own
 record, with its own writer.) Two gates come with that: the ledger lock, held across each mutating
-command's read-modify-write, and `require_initialized` -- nothing writes a `.pf/` this tool never
+command's read-modify-write, and `require_initialized` -- nothing writes a `.superworker/` this tool never
 init'ed.
 
 `--help` is the list of verbs, their flags and their values. This file owns the parser and the one
@@ -36,7 +36,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -63,7 +63,7 @@ def _load_impl():
 
     By PATH, not by name, and with the name dropped from `sys.modules` first: this file is loaded
     more than once in a process -- the test harness loads a fresh copy per sandbox, so that two
-    throwaway projects never share one `.pf/` -- and a by-name import would hand the second copy
+    throwaway projects never share one `.superworker/` -- and a by-name import would hand the second copy
     the first copy's package, and its paths with it. Inside the package, `from . import store`
     resolves through the registration the load makes.
 
@@ -80,7 +80,7 @@ _impl = _load_impl()
 
 # Everything the package exports, reachable from here: `python state-manage.py <verb>` and a caller
 # that loads this module in process see one flat surface -- exactly the one this file offered at
-# module scope before the split. `.pf/` itself is deliberately not among them: it belongs to
+# module scope before the split. `.superworker/` itself is deliberately not among them: it belongs to
 # `store` and is read at call time, and `bind_paths` is how a caller aims this copy at a project.
 globals().update({name: getattr(_impl, name) for name in _impl.__all__})
 
@@ -132,6 +132,7 @@ def _target_layer(args) -> str:
 _ROUTES = {
     ('init', None): lambda a: cmd_init(a.project, a.mode, a.own_repo),
     ('register', None): lambda a: cmd_register(a.project),
+    ('migrate', None): lambda a: cmd_migrate(a.generation, a.project, a.home),
     ('clean-temp', None): lambda a: cmd_clean_temp(a.project, a.node, a.yes, a.force),
     ('fork-worktree', None): lambda a: cmd_fork_worktree(a.node),
     ('next', None): cmd_next,
@@ -259,14 +260,14 @@ def main(argv=None) -> None:
 
     p_cpo = cyc_sub.add_parser('policy',
                                help="Write one policy on this line's own record (the effective set "
-                                    "is echoed back; a core setting is `pf config set`'s, not this "
+                                    "is echoed back; a core setting is `sw config set`'s, not this "
                                     "line's)")
     p_cpo.add_argument('id')
     p_cpo.add_argument('key', choices=list(POLICY_KEYS))
     # The value help is built from the same table the writing side judges with: what `--help` prints
     # and what is accepted cannot drift apart. That table is `state/cycles.py`'s (`POLICY_SPECS`): the
     # line's own three policies, plus every knob a declaration brings that takes the cycle layer. A
-    # policy is this line's own thing, so it is not the settings table `pf config` prints.
+    # policy is this line's own thing, so it is not the settings table `sw config` prints.
     knob_table = POLICY_SPECS
     policy_parts = []
     for key in (*POLICY_VALUES, *POLICY_COUNTS, *POLICY_NUMBERS, *POLICY_WORDS):
@@ -289,10 +290,10 @@ def main(argv=None) -> None:
                        help='The value, in the key\'s own kind -- ' + '; '.join(policy_parts)
                             + '. Every knob a plugin declares rides on this line too. A core '
                               'setting does not: it takes the project and global layers only, and '
-                              '`pf config set` is its door. `off` drops this line\'s entry for a '
+                              '`sw config set` is its door. `off` drops this line\'s entry for a '
                               'number / integer / word, so the next layer of the chain shows '
                               'through; on a switch it is a value -- a switch is turned off by '
-                              'writing `off`, and dropping its entry is `pf config unset --cycle`. '
+                              'writing `off`, and dropping its entry is `sw config unset --cycle`. '
                               'Numbers and integers take a positive value only: a line of 0 fails '
                               'every reading')
 
@@ -437,7 +438,7 @@ def main(argv=None) -> None:
         'config',
         help="One setting on one chain: factory default, then global, project, this line and this "
              "node -- the narrowest layer that states it wins (the line's own `parallel` / "
-             "`when_shelved` / `spawner` are not settings: `pf cycle policy` writes them)",
+             "`when_shelved` / `spawner` are not settings: `sw cycle policy` writes them)",
         description='Every setting is a knob with a kind, and one chain: this node -> this line -> '
                     'this project -> this machine -> factory default. Narrower layers cover wider '
                     'ones, and the same name may be stated on several layers at once: the '
@@ -448,14 +449,14 @@ def main(argv=None) -> None:
                     'global layers, a plugin\'s knob takes all four (`set` names the layers a knob '
                     'takes when it refuses one). The line\'s own policies -- `parallel`, '
                     '`when_shelved`, `spawner` -- are not settings and are not here: they live on '
-                    'the line record, written by `pf cycle policy`. '
-                    'The two file layers are `~/.pf/config.json` (global: travels with the '
-                    'person and the machine, never generated for you) and `<project>/.pf/'
+                    'the line record, written by `sw cycle policy`. '
+                    'The two file layers are `~/.superworker/config.json` (global: travels with the '
+                    'person and the machine, never generated for you) and `<project>/.superworker/'
                     'config.json` (travels with the project; `init` puts an empty `{}` there); the '
                     'two narrow ones ride on the cycle record and on one node\'s own '
                     '`config.json`. `set` stores a value and `unset` drops that one layer\'s entry '
                     '-- a switch is turned off by setting `off`, while dropping its entry is '
-                    '`unset` (the same split `pf cycle policy` explains). `set` / `unset` write '
+                    '`unset` (the same split `sw cycle policy` explains). `set` / `unset` write '
                     'exactly one layer: the project layer unless --global / --cycle / --node says '
                     'otherwise.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -483,13 +484,13 @@ def main(argv=None) -> None:
     p_cfg_set.add_argument('value')
     set_layer = p_cfg_set.add_mutually_exclusive_group()
     set_layer.add_argument('--global', dest='global_', action='store_true',
-                           help='Write the global layer (~/.pf/config.json) instead of the project one')
+                           help='Write the global layer (~/.superworker/config.json) instead of the project one')
     set_layer.add_argument('--cycle', default=None,
                            help='Write this line\'s layer instead (a cycle id): the value rides on '
                                 'the cycle record, whose one writer takes it')
     set_layer.add_argument('--node', default=None,
                            help='Write this node\'s layer instead (a node id): '
-                                '`.pf/nodes/<id>/config.json`')
+                                '`.superworker/nodes/<id>/config.json`')
     p_cfg_set.add_argument('--project', default=None, help='Project root (default: current directory)')
     p_cfg_unset = cfg_sub.add_parser('unset',
                                      help='Drop one override, letting the next wider layer take over '
@@ -508,7 +509,7 @@ def main(argv=None) -> None:
         'session',
         help='Which conversation produced a node, and which ones ran it: show / list / import',
         description='A session id is machine-local -- a conversation lives on the machine that '
-                    'opened it -- so the ids live in `.pf/meta/sessions/<node id>.json` instead of '
+                    'opened it -- so the ids live in `.superworker/meta/sessions/<node id>.json` instead of '
                     'on the record: guaranteed dead on another machine, and impossible to tell apart '
                     'from "that session was deleted here". `show` reads one node\'s note, `list` '
                     'reads every note this machine holds (keyed by node id, for a panel), and '
@@ -581,7 +582,7 @@ def main(argv=None) -> None:
              'that node was pinned)',
         description='Dispatch and nothing else: read the node this cycle holds, then start the '
                     'session whose prompt the step that pinned it already wrote at '
-                    '.pf/meta/launch/<cycle>/<node>/prompt.txt. No bookkeeping and no state change '
+                    '.superworker/meta/launch/<cycle>/<node>/prompt.txt. No bookkeeping and no state change '
                     '-- that is what makes "commit and push first, then dispatch" expressible: the '
                     'next session boots in the same worktree and pulls. '
                     'DSH_CONDUCT_SPAWN_DRY_RUN=1 makes the call and reports it without opening a '
@@ -596,36 +597,58 @@ def main(argv=None) -> None:
 
     p_init = sub.add_parser(
         'init',
-        help='Put `.pf/` in place: the one setup act, run once per project',
-        description='Write `.pf/.gitignore` and `.pf/.gitattributes`, and decide whether this '
-                    'project commits its `.pf/` or keeps that directory to itself. `--local` (the '
+        help='Put `.superworker/` in place: the one setup act, run once per project',
+        description='Write `.superworker/.gitignore` and `.superworker/.gitattributes`, and decide whether this '
+                    'project commits its `.superworker/` or keeps that directory to itself. `--local` (the '
                     'default) writes one line into the repository\'s `info/exclude` -- a per-clone '
                     'file, so no teammate ever sees a line about a directory that does not exist '
-                    'for them -- and gives `.pf/` its own repository unless `--no-own-repo`. '
-                    '`--commit` takes the exclude line back out and lets `.pf/` travel with the '
+                    'for them -- and gives `.superworker/` its own repository unless `--no-own-repo`. '
+                    '`--commit` takes the exclude line back out and lets `.superworker/` travel with the '
                     'project. Idempotent: re-running it never does anything twice, and switching '
                     'modes is just running it again with the other flag.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p_init.add_argument('--project', default=None, help='Project root (default: current directory)')
     p_mode = p_init.add_mutually_exclusive_group()
     p_mode.add_argument('--local', dest='mode', action='store_const', const='local', default='local',
-                        help='Keep `.pf/` out of the project\'s repository (the default)')
+                        help='Keep `.superworker/` out of the project\'s repository (the default)')
     p_mode.add_argument('--commit', dest='mode', action='store_const', const='commit',
-                        help='Let `.pf/` go into the project\'s repository')
+                        help='Let `.superworker/` go into the project\'s repository')
     p_init.add_argument('--own-repo', dest='own_repo', action='store_true', default=True,
-                        help='Local mode only: give `.pf/` a repository of its own (the default)')
+                        help='Local mode only: give `.superworker/` a repository of its own (the default)')
     p_init.add_argument('--no-own-repo', dest='own_repo', action='store_false',
-                        help='Local mode only: leave `.pf/` as plain ignored files')
+                        help='Local mode only: leave `.superworker/` as plain ignored files')
 
     p_reg = sub.add_parser(
         'register',
         help='Write the ledger\'s git merge driver into this project\'s git config',
-        description='Set `merge.pf.name` and `merge.pf.driver` in the project\'s git config. `init` '
+        description='Set `merge.superworker.name` and `merge.superworker.driver` in the project\'s git config. `init` '
                     'already does this as part of its one setup act; the verb is here so a project '
                     'can be brought forward, or a moved checkout re-pointed, without re-running '
-                    'setup. `pf register` calls exactly this.',
+                    'setup. `sw register` calls exactly this.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p_reg.add_argument('--project', default=None, help='Project root (default: current directory)')
+
+    p_mig = sub.add_parser(
+        'migrate',
+        help='Move a workspace\'s records out of the old `.pf/` into `.superworker/`',
+        description='Move a workspace\'s records from `.pf/` to `.superworker/`, for the generation '
+                    'named on the command line (`0.1.0`) -- the records 0.1.x wrote. The directory '
+                    'rename comes first; then its attachments follow: the repository\'s ignore line, '
+                    'the record directory\'s `.gitattributes`, its usage note, the merge driver\'s '
+                    'registration, the machine layer\'s settings (copied, never over a file already '
+                    'at the new home), and every stored `plan_path` value that still names the old directory. The '
+                    'records are '
+                    'then swept to LF. A workspace whose records are already moved is empty work. '
+                    'Five states refuse instead of guessing -- both directories present, an old '
+                    'directory nobody init-ed, one the project\'s git tracks, a run in flight, a '
+                    'parallel-mode worktree -- and each says to consult an agent.',
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p_mig.add_argument('generation', nargs='?', default=None, metavar='GENERATION',
+                       help='Which writer laid these records down; without it, the known ones are '
+                            'printed and nothing is moved')
+    p_mig.add_argument('--project', default=None, help='Project root (default: current directory)')
+    p_mig.add_argument('--home', default=None,
+                       help='The machine layer\'s home (default: the one `~` resolves to)')
 
     p_ct = sub.add_parser('clean-temp',
                           help='List (or with --yes, remove) every node\'s temp/ directory')
@@ -639,13 +662,13 @@ def main(argv=None) -> None:
 
     p_fork = sub.add_parser(
         'fork-worktree',
-        help='Fork one node\'s parallel-mode worktree: `.pf/worktrees/<short id>` on branch '
-             '`pf/<short id>`',
+        help='Fork one node\'s parallel-mode worktree: `.superworker/worktrees/<short id>` on branch '
+             '`sw/<short id>`',
         description='The parallel mode\'s fork, as one command (the SKILL\'s "parallel: worktree"): refuses '
                     'while the main tree is dirty (another line may be mid-merge-back) and while '
                     'the node\'s short id is already taken (worktree directory or branch '
-                    '`pf/<short id>` exists); otherwise `git worktree add`s the checkout and writes '
-                    '`.pf/meta/FORK-<short id>.json` -- the record the closing call gates on, so a '
+                    '`sw/<short id>` exists); otherwise `git worktree add`s the checkout and writes '
+                    '`.superworker/meta/FORK-<short id>.json` -- the record the closing call gates on, so a '
                     'node whose merge-back never finished cannot be settled. Works from a worktree '
                     'cwd too: the main tree is resolved the same way the record commands do it.',
         formatter_class=argparse.RawDescriptionHelpFormatter)

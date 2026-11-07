@@ -441,7 +441,7 @@ class TestContract(Base):
         """
         self.assertEqual(['node_id'],
                          list(inspect.signature(pipeline.build_prompt_text).parameters))
-        self.assertEqual(f'/pf-conduct {NODE} [pipeline]\n', pipeline.build_prompt_text(NODE))
+        self.assertEqual(f'/sw-conduct {NODE} [pipeline]\n', pipeline.build_prompt_text(NODE))
         with self.assertRaises(ValueError):
             pipeline.build_prompt_text(None)
         self.assertFalse(hasattr(pipeline, 'prompt_for'),
@@ -546,7 +546,7 @@ class TestContract(Base):
             sb.close_round(waiting['node_id'])
 
         self.assertEqual(normalise(fast.state()), normalise(slow.state()))
-        for rel in ('.pf/signals/cyc/%s.json' % NODE, '.pf/ideas.json'):
+        for rel in ('.superworker/signals/cyc/%s.json' % NODE, '.superworker/ideas.json'):
             self.assertEqual(normalise(json.loads(fast.tree_contents()[rel])),
                              normalise(json.loads(slow.tree_contents()[rel])), rel)
         self.assertEqual(fast.path_nodes(), slow.path_nodes())
@@ -817,7 +817,7 @@ class TestTheInsertionActionShape(Base):
         self.assertEqual(1, len(made), f'the fixture inserted no node: {nodes}')
         self.assertEqual([], nodes[made[0]]['dependencies'],
                          'a pick insertion has no parent: it is ready when it exists')
-        self.assertTrue((sb.root / '.pf' / 'nodes' / made[0] / 'spec.md').is_file(),
+        self.assertTrue((sb.root / '.superworker' / 'nodes' / made[0] / 'spec.md').is_file(),
                         'the inserted node has no text')
 
         dispatched = sb.next()

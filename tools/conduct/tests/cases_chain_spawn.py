@@ -7,7 +7,7 @@ tested territory; here the choice is pinned through `DSH_CONDUCT_SPAWNER` -- the
 
 The dispatch gate is asked before anything starts (a chain-run session is a real session), so a
 throwaway plugins directory holding a `block`-at-dispatch folder is the fixture for the refusal
-case: `PF_PLUGINS_DIR` points the plugin scan at it, and `PF_HOME_DIR` keeps the machine's own
+case: `SUPERWORKER_PLUGINS_DIR` points the plugin scan at it, and `SUPERWORKER_HOME_DIR` keeps the machine's own
 settings file out of the run.
 
     python -m unittest cases_chain_spawn            # from this directory
@@ -47,7 +47,7 @@ class ChainCase(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix='chain-spawn-test-'))
         self.addCleanup(shutil.rmtree, self.root, True)
         self.project = self.root / 'project'
-        self.prompt = self.project / '.pf' / 'repair' / 'chain' / 'next-r5.txt'
+        self.prompt = self.project / '.superworker' / 'repair' / 'chain' / 'next-r5.txt'
         self.prompt.parent.mkdir(parents=True)
         self.prompt.write_text(PROMPT, encoding='utf-8')
 
@@ -75,7 +75,7 @@ class ChainCase(unittest.TestCase):
             extra = (*extra, '--workspace', str(self.project))
         out, err = StringIO(), StringIO()
         door = contextlib.nullcontext() if real_door else patched(chain_spawn, '_start', start)
-        env = {'DSH_CONDUCT_SPAWNER': FAKE_SPAWNER, 'PF_HOME_DIR': str(self.root / 'home')}
+        env = {'DSH_CONDUCT_SPAWNER': FAKE_SPAWNER, 'SUPERWORKER_HOME_DIR': str(self.root / 'home')}
         with door, mock.patch.dict(os.environ, env), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = chain_spawn.main(['--prompt-file', str(self.prompt), *extra])
@@ -88,7 +88,7 @@ class ChainCase(unittest.TestCase):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / 'plugin.json').write_text(json.dumps(declaration), encoding='utf-8')
         (folder / 'impl.py').write_text(impl, encoding='utf-8')
-        return mock.patch.dict(os.environ, {'PF_PLUGINS_DIR': str(root)})
+        return mock.patch.dict(os.environ, {'SUPERWORKER_PLUGINS_DIR': str(root)})
 
 
 class TestSpawn(ChainCase):
@@ -151,7 +151,7 @@ class TestFailure(ChainCase):
         """With no plugin installed the gate has nothing to say, and the chain starts as always."""
         empty = self.root / 'empty-plugins'
         empty.mkdir()
-        with mock.patch.dict(os.environ, {'PF_PLUGINS_DIR': str(empty)}):
+        with mock.patch.dict(os.environ, {'SUPERWORKER_PLUGINS_DIR': str(empty)}):
             code, calls, out, _ = self.run_tool('--dry-run', real_door=True)
 
         self.assertEqual(0, code, out)

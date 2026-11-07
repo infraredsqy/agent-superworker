@@ -34,11 +34,11 @@ __all__ = ['TestGitEndToEnd']
 
 #: What the driver is wired to in `.gitattributes` -- the block the report hands over verbatim.
 GITATTRIBUTES = (
-    '.pf/ideas.json        merge=pf\n'
-    '.pf/state.json        merge=pf\n'
-    '.pf/instructions.json merge=pf\n'
-    '.pf/signals/**        merge=pf\n'
-    '.pf/**                -text\n'
+    '.superworker/ideas.json        merge=superworker\n'
+    '.superworker/state.json        merge=superworker\n'
+    '.superworker/instructions.json merge=superworker\n'
+    '.superworker/signals/**        merge=superworker\n'
+    '.superworker/**                -text\n'
 )
 
 
@@ -50,11 +50,11 @@ class TestGitEndToEnd(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.repo = Path(self._tmp.name)
         git(self.repo, 'init', '-b', 'main')
-        git(self.repo, 'config', 'merge.pf.driver',
+        git(self.repo, 'config', 'merge.superworker.driver',
             f'python "{MERGE_PY.as_posix()}" %O %A %B %P')
         (self.repo / '.gitattributes').write_text(GITATTRIBUTES, encoding='utf-8')
-        # init's two marker files, plus `.pf/.gitignore`: the write-back takes the project's lock,
-        # the lock lives in `.pf/meta/`, and that is exactly what this ignore keeps out -- so the
+        # init's two marker files, plus `.superworker/.gitignore`: the write-back takes the project's lock,
+        # the lock lives in `.superworker/meta/`, and that is exactly what this ignore keeps out -- so the
         # "the merge left no trace" assertions below still hold.
         init_markers(self.repo)
 
@@ -72,32 +72,32 @@ class TestGitEndToEnd(unittest.TestCase):
             git(self.repo, 'commit', '-a', '-m', message, '--no-gpg-sign')
 
     def test_the_attributes_point_every_ledger_at_this_driver(self):
-        ledgers = ('.pf/ideas.json', '.pf/state.json', '.pf/instructions.json',
-                   '.pf/signals/cyc/aaaa1111.json')
+        ledgers = ('.superworker/ideas.json', '.superworker/state.json', '.superworker/instructions.json',
+                   '.superworker/signals/cyc/aaaa1111.json')
         out = git(self.repo, 'check-attr', 'merge', *ledgers).stdout
         for ledger in ledgers:
             with self.subTest(ledger=ledger):
-                self.assertIn(f'{ledger}: merge: pf', out)
+                self.assertIn(f'{ledger}: merge: superworker', out)
 
     def test_a_real_merge_uses_the_driver_and_lands_clean(self):
         shared = step(NODE1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one')), sort_keys=True)
-        self.write('.pf/state.json', cycle([shared]))
-        self.write('.pf/instructions.json', instruction())
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one')), sort_keys=True)
+        self.write('.superworker/state.json', cycle([shared]))
+        self.write('.superworker/instructions.json', instruction())
         self.commit('ledger base', first=True)
 
         git(self.repo, 'checkout', '-b', 'plugin')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one'), bbbb=node('two')), sort_keys=True)
-        self.write('.pf/state.json',
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one'), bbbb=node('two')), sort_keys=True)
+        self.write('.superworker/state.json',
                    cycle([shared, step(NODE2, '2026-10-01T01:00:00Z', '2026-10-01T02:00:00Z')]))
-        self.write('.pf/instructions.json', instruction(text='theirs text'))
+        self.write('.superworker/instructions.json', instruction(text='theirs text'))
         self.commit('plugin: a node and a step')
 
         git(self.repo, 'checkout', 'main')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one'), cccc=node('three')), sort_keys=True)
-        self.write('.pf/state.json',
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one'), cccc=node('three')), sort_keys=True)
+        self.write('.superworker/state.json',
                    cycle([shared, step(NODE3, '2026-10-01T03:00:00Z', '2026-10-01T04:00:00Z')]))
-        self.write('.pf/instructions.json', instruction(note='ours note'))
+        self.write('.superworker/instructions.json', instruction(note='ours note'))
         self.commit('main: another node and step')
 
         proc = git(self.repo, 'merge', 'plugin', '--no-edit', check=False)
@@ -106,54 +106,54 @@ class TestGitEndToEnd(unittest.TestCase):
         self.assertNotIn('CONFLICT', proc.stdout + proc.stderr)
         self.assertEqual('', git(self.repo, 'status', '--porcelain').stdout.strip())
 
-        merged_ideas = _decode(self.repo / '.pf/ideas.json')
+        merged_ideas = _decode(self.repo / '.superworker/ideas.json')
         self.assertEqual({NODE1, NODE2, NODE3}, set(merged_ideas['nodes']))
-        merged_state = _decode(self.repo / '.pf/state.json')
+        merged_state = _decode(self.repo / '.superworker/state.json')
         self.assertEqual([NODE1, NODE2, NODE3],
                          [s['node'] for s in merged_state['cycles'][0]['path']])
-        merged_ins = _decode(self.repo / '.pf/instructions.json')['instructions'][0]
+        merged_ins = _decode(self.repo / '.superworker/instructions.json')['instructions'][0]
         self.assertEqual('theirs text', merged_ins['text'])
         self.assertEqual('ours note', merged_ins['note'])
         # and the driver's own bytes survived git: CRLF, and no trailing newline
-        self.assertFalse((self.repo / '.pf/ideas.json').read_bytes().endswith(b'\n'))
+        self.assertFalse((self.repo / '.superworker/ideas.json').read_bytes().endswith(b'\n'))
 
     def test_a_real_conflict_keeps_ours_and_stops(self):
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X])), sort_keys=True)
-        self.write('.pf/state.json', cycle([]))
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X])), sort_keys=True)
+        self.write('.superworker/state.json', cycle([]))
         self.commit('ledger base', first=True)
 
         git(self.repo, 'checkout', '-b', 'plugin')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X, EDGE_Y])), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X, EDGE_Y])), sort_keys=True)
         self.commit('plugin: adds an edge')
 
         git(self.repo, 'checkout', 'main')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', deps=[])), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', deps=[])), sort_keys=True)
         self.commit('main: drops the edge')
-        ours_bytes = (self.repo / '.pf/ideas.json').read_bytes()
+        ours_bytes = (self.repo / '.superworker/ideas.json').read_bytes()
 
         proc = git(self.repo, 'merge', 'plugin', '--no-edit', check=False)
 
         self.assertNotEqual(0, proc.returncode, 'a real conflict must stop the merge')
         self.assertIn('dependencies', proc.stdout + proc.stderr)
         status = git(self.repo, 'status', '--porcelain').stdout
-        self.assertTrue(status.startswith('UU .pf/ideas.json'), status)
-        self.assertEqual(ours_bytes, (self.repo / '.pf/ideas.json').read_bytes(),
+        self.assertTrue(status.startswith('UU .superworker/ideas.json'), status)
+        self.assertEqual(ours_bytes, (self.repo / '.superworker/ideas.json').read_bytes(),
                          'git must leave <ours> exactly as it was')
 
     def test_a_rebase_runs_the_driver_too(self):
-        """`git pull --rebase` is how pf-conduct prepares and closes a node, so the driver has to
+        """`git pull --rebase` is how sw-conduct prepares and closes a node, so the driver has to
         fire on a rebase as well. A rebase replays each commit with a three-way merge against the new
         base, which is the same call the merge case makes -- this pins that it really is."""
-        self.write('.pf/ideas.json', ideas(aaaa=node('one')), sort_keys=True)
-        self.write('.pf/state.json', cycle([]))
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one')), sort_keys=True)
+        self.write('.superworker/state.json', cycle([]))
         self.commit('ledger base', first=True)
 
         git(self.repo, 'checkout', '-b', 'plugin')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one'), cccc=node('three')), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one'), cccc=node('three')), sort_keys=True)
         self.commit('plugin: adds a node')
 
         git(self.repo, 'checkout', 'main')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', status='completed')), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', status='completed')), sort_keys=True)
         self.commit('main: marks the first node completed')
 
         proc = git(self.repo, 'rebase', 'plugin', check=False)
@@ -162,28 +162,28 @@ class TestGitEndToEnd(unittest.TestCase):
         self.assertNotIn('CONFLICT', proc.stdout + proc.stderr)
         self.assertEqual('', git(self.repo, 'status', '--porcelain').stdout.strip())
         self.assertFalse((self.repo / '.git' / 'rebase-merge').exists(), 'the rebase is still open')
-        merged = _decode(self.repo / '.pf/ideas.json')
+        merged = _decode(self.repo / '.superworker/ideas.json')
         self.assertEqual({NODE1, NODE3}, set(merged['nodes']))           # plugin's node survived
         self.assertEqual('completed', merged['nodes'][NODE1]['status'])   # main's edit survived
 
     def test_a_rebase_conflict_tells_the_user_how_to_get_out(self):
         """The escape hatch, pinned as documentation: `--continue` after fixing, `--abort` to back out.
         The driver's own line is in the same output -- git prints a merge driver's stderr."""
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X])), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X])), sort_keys=True)
         self.commit('ledger base', first=True)
 
         git(self.repo, 'checkout', '-b', 'plugin')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X, EDGE_Y])), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', deps=[EDGE_X, EDGE_Y])), sort_keys=True)
         self.commit('plugin: adds an edge')
 
         git(self.repo, 'checkout', 'main')
-        self.write('.pf/ideas.json', ideas(aaaa=node('one', deps=[])), sort_keys=True)
+        self.write('.superworker/ideas.json', ideas(aaaa=node('one', deps=[])), sort_keys=True)
         self.commit('main: drops the edge')
 
         proc = git(self.repo, 'rebase', 'plugin', check=False)
 
         self.assertNotEqual(0, proc.returncode)
-        for hint in ('git rebase --continue', 'git rebase --abort', 'pf conflict'):
+        for hint in ('git rebase --continue', 'git rebase --abort', 'sw conflict'):
             self.assertIn(hint, proc.stdout + proc.stderr, proc.stdout + proc.stderr)
         self.assertTrue((self.repo / '.git' / 'rebase-merge').exists()
                         or (self.repo / '.git' / 'rebase-apply').exists(),

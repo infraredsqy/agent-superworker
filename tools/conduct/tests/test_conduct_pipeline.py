@@ -27,7 +27,7 @@ in-process versus as a process -- and for the one test that pins the two togethe
 
 What this suite is organised around
 -----------------------------------
-  1. the shape: one DAG node = one cycle step = one `pf-conduct` session, recorded in the cycle's
+  1. the shape: one DAG node = one cycle step = one `sw-conduct` session, recorded in the cycle's
      own `path` inside `state.json` (no stage, no round, no per-round file, no second pointer)
   2. the close: the worker's own `next --after <node_id>`, the outcome read off the signal it
      already wrote, and the next node picked by the DAG's own rule
@@ -92,6 +92,7 @@ from cases_session import *       # noqa: F401,F403
 from cases_shared import *        # noqa: F401,F403
 from cases_bin import *           # noqa: F401,F403
 from cases_install import *       # noqa: F401,F403
+from cases_migrate import *       # noqa: F401,F403
 from cases_chain_spawn import *   # noqa: F401,F403
 from cases_suite import *         # noqa: F401,F403
 

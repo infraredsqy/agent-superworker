@@ -1,11 +1,11 @@
-"""One root -- `<project>/.pf/` -- and the four kinds of thing that live under it.
+"""One root -- `<project>/.superworker/` -- and the four kinds of thing that live under it.
 
-The command's durable account is the LEDGER, `<project>/.pf/`: the cycle book (`state.json`), the
+The command's durable account is the LEDGER, `<project>/.superworker/`: the cycle book (`state.json`), the
 signals (`signals/`), the standing instructions (`instructions.json`), the DAG (`ideas.json`) and
 each node's own text (`nodes/<id>/`). A project either commits it or keeps it local, and which of
-those it is never changes what this module computes -- only whether git tracks `.pf/`.
+those it is never changes what this module computes -- only whether git tracks `.superworker/`.
 
-Everything else under `.pf/` is plumbing, and the ledger's own `.gitignore` ignores it:
+Everything else under `.superworker/` is plumbing, and the ledger's own `.gitignore` ignores it:
 
     meta/                 the dispatch plumbing -- launch prompts, the FORK record, the
                           broken-chain marker, and the cross-process ledger lock
@@ -20,7 +20,7 @@ ledger lock every mutating command holds across its read-modify-write, and the s
 accessors built on the shared primitives -- the JSON reader and atomic writer, and the lock itself,
 both in `tools/shared/`.
 
-`require_initialized` is the gate: a `.pf/` this tool created by itself -- never init'ed -- is the
+`require_initialized` is the gate: a `.superworker/` this tool created by itself -- never init'ed -- is the
 one state that must not be reachable, because the lock's own `mkdir` would otherwise leave an
 unignored ledger in the tree for the next `git add -A` to sweep up.
 
@@ -47,21 +47,23 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
 
 
 def _ledger():
-    """`tools/shared/ledger.py`: where `.pf/` lands and the init gate -- one source."""
+    """`tools/shared/ledger.py`: where `.superworker/` lands and the init gate -- one source."""
     return _loader().load_shared('ledger')
 
 #: These names have their one source in `tools/shared/ledger.py` and stay reachable in this
 #: namespace (`fork.py` / `initledger.py` fetch them with `from .store import ...`, and the
 #: package's `__all__` still collects them). Fetched, not copied: there is no second value here,
 #: and so no second spelling that has to be kept in step with the source.
-_FROM_LEDGER = {'LEDGER_NAME': 'LEDGER_NAME', 'INIT_MARKERS': 'INIT_MARKERS',
+_FROM_LEDGER = {'LEDGER_NAME': 'LEDGER_NAME', 'LEGACY_DIR_NAME': 'LEGACY_DIR_NAME',
+                'CONFIG_NAME': 'CONFIG_NAME', 'INIT_MARKERS': 'INIT_MARKERS',
+                'legacy_ledger_dir_for': 'legacy_ledger_dir_for',
                 '_resolve_project_root': 'resolve_project_root'}
 
 
@@ -72,9 +74,9 @@ def __getattr__(name: str):
         return getattr(_ledger(), _FROM_LEDGER[name])
     raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
-#: One root: `.pf/`. `meta/`, `worktrees/` and `nodes/<id>/temp/` are ignored subdirectories under
+#: One root: `.superworker/`. `meta/`, `worktrees/` and `nodes/<id>/temp/` are ignored subdirectories under
 #: it, each computed by the `*_dir_for()` below, and never again by assembling a path under some
-#: other root's `.pf/`. cwd is frozen at import time (in a worktree it goes back to the main tree,
+#: other root's `.superworker/`. cwd is frozen at import time (in a worktree it goes back to the main tree,
 #: see `resolve_project_root` in `shared/ledger.py`). A command with `--project` goes around it,
 #: see `ledger_dir_for()`.
 PROJECT_ROOT = _ledger().resolve_project_root(Path.cwd())
@@ -92,12 +94,12 @@ def _explicit_project(project):
 
 
 def ledger_dir_for(project: str | None = None) -> Path:
-    """Where the ledger (`.pf/`) lives.
+    """Where the ledger (`.superworker/`) lives.
 
     `project is None` keeps every pre-existing caller on the import-time cwd resolution. An explicit
     `--project` matters because `LEDGER_DIR` freezes `Path.cwd()` at import: a caller whose cwd is
     not the project root (a subagent that cd'd away, a launcher that started somewhere else) would
-    otherwise read a *different* project's `.pf/` -- and an empty one reads as "no instructions",
+    otherwise read a *different* project's `.superworker/` -- and an empty one reads as "no instructions",
     silently, with exit 0. A constraint that looks absent is worse than a loud error.
     """
     if project is None:
@@ -106,22 +108,22 @@ def ledger_dir_for(project: str | None = None) -> Path:
 
 
 def meta_dir_for(project: str | None = None) -> Path:
-    """Where the dispatch plumbing lives (`<project>/.pf/meta/`): launch prompts, the FORK record,
+    """Where the dispatch plumbing lives (`<project>/.superworker/meta/`): launch prompts, the FORK record,
     the broken-chain marker, the ledger lock. The same rule as `ledger_dir_for`, one level down."""
     return _ledger().meta_dir_of(ledger_dir_for(project))
 
 
 def nodes_dir_for(project: str | None = None) -> Path:
-    """Where each node's own directory lives (`<project>/.pf/nodes/`): its spec, its report group
+    """Where each node's own directory lives (`<project>/.superworker/nodes/`): its spec, its report group
     and the `temp/` it generates. The same rule as `ledger_dir_for`, one level down."""
     return _ledger().nodes_dir_of(ledger_dir_for(project))
 
 
 def require_initialized(project: str | None = None) -> None:
-    """This `.pf/` must already have been init-ed, or nothing may be written.
+    """This `.superworker/` must already have been init-ed, or nothing may be written.
 
-    No other command creates `.pf/`; the only thing that would create it in passing is the lock's
-    `mkdir` -- and that is exactly what this blocks: a `.pf/` that is neither tracked nor ignored
+    No other command creates `.superworker/`; the only thing that would create it in passing is the lock's
+    `mkdir` -- and that is exactly what this blocks: a `.superworker/` that is neither tracked nor ignored
     gets swept into the team repo by the next `git add -A`. The rule and that sentence live in
     `tools/shared/ledger.py` (pure filesystem, never asks git); when `project` was named, the
     sample command line in it carries that name.
@@ -139,11 +141,11 @@ def require_initialized(project: str | None = None) -> None:
 # two processes walking that sequence at once means the later write silently erases the earlier
 # one. With parallel=2 (two cycles settling at the same time) that window stops being theoretical,
 # so every MUTATING command body holds this lock across its read → write. One path per project
-# root -- `.pf/meta/ledger.lock` -- shared by conduct, dag-manage, a session note's own writer and
+# root -- `.superworker/meta/ledger.lock` -- shared by conduct, dag-manage, a session note's own writer and
 # every plugin tool that keeps a record here, so their writes exclude each other too.
 #
 # This is also the gate: every mutating command passes through here, and the lock's `mkdir` would
-# otherwise be the one thing that conjures a `.pf/` nobody init'ed.
+# otherwise be the one thing that conjures a `.superworker/` nobody init'ed.
 
 
 @contextlib.contextmanager
@@ -240,7 +242,7 @@ def _read_json(path: Path, label: str) -> dict | None:
 
 
 # ── The four records: one door ───────────────────────────────────────────────
-# The four things under `.pf/` are the whole of this tool's records -- the cycle book
+# The four things under `.superworker/` are the whole of this tool's records -- the cycle book
 # (state.json), the notes (signals/), the standing instruction list (instructions.json) and the
 # graph (ideas.json). This section is their **only** path algorithm: every door takes a `project`,
 # so reading another project's records never means assembling a path by hand, and no second
@@ -249,7 +251,7 @@ def _read_json(path: Path, label: str) -> dict | None:
 # `clean-temp --yes`, means deleting it all the same.
 
 def _record_path(project: str | None, *parts: str) -> Path:
-    """`<project>/.pf/<parts...>`: the record's landing place meets the ledger root only here.
+    """`<project>/.superworker/<parts...>`: the record's landing place meets the ledger root only here.
 
     With `project` None it uses the root this copy was bound to at import time (moved by
     `bind_paths`).
@@ -302,13 +304,13 @@ def dag_manage():
     if _DAG_MANAGE is None:
         if not DAG_MANAGE.exists():
             raise FileNotFoundError(f'dag-manage.py not found at {DAG_MANAGE}')
-        _DAG_MANAGE = _loader().load_by_path('pf_state_dag_manage', DAG_MANAGE)
+        _DAG_MANAGE = _loader().load_by_path('sw_state_dag_manage', DAG_MANAGE)
     return _DAG_MANAGE
 
 
 def _instructions_path(project: str | None = None) -> Path:
     """Where the standing instruction list lands: the list is part of the ledger, so it is
-    `<project>/.pf/instructions.json`."""
+    `<project>/.superworker/instructions.json`."""
     return _record_path(project, 'instructions.json')
 
 
@@ -372,7 +374,7 @@ def _find_cycle(state: dict, cycle_id: str) -> dict:
 # ── Signals ──────────────────────────────────────────────────────────────────
 
 def _signal_path(cycle_id: str, node_id: str, project: str | None = None) -> Path:
-    """Where a note lands: `<project>/.pf/signals/<cycle>/<node>.json` (`project` defaults to the
+    """Where a note lands: `<project>/.superworker/signals/<cycle>/<node>.json` (`project` defaults to the
     root this copy is bound to)."""
     return _signal_path_in(_record_path(project, 'signals'), cycle_id, node_id)
 
@@ -399,7 +401,7 @@ def _write_signal(cycle_id: str, node_id: str, status: str, summary: str, output
     The path is `_signal_path`'s and the moment is `_now`'s, so a signal written by a worker, by
     `handoff.py` or by `cycle retry` is the same record at the same place.
 
-    `signals_dir` is the landing place of **this one write** (`<project>/.pf/signals`), used and
+    `signals_dir` is the landing place of **this one write** (`<project>/.superworker/signals`), used and
     dropped: give it, and this write lands there while this copy's binding is left untouched --
     moving the binding is `bind_paths`' one job, and more than one caller in a process shares this
     store, so having a note write quietly change the whole process's destination would land it in
@@ -456,13 +458,13 @@ def _closed_steps_of_node(cycles: list, node: str) -> str:
 
 
 def bind_paths(ledger_dir) -> None:
-    """Point this copy of the tool at one project's `.pf/` (in-process callers only).
+    """Point this copy of the tool at one project's `.superworker/` (in-process callers only).
 
     The CLI's paths come from `Path.cwd()` at import, because it is started with cwd set to the
     project. A caller that loads this module in process instead has to say which project it means:
     everything else reads these bindings at call time, so this one call moves the whole module.
 
-    `ledger_dir` is `<project>/.pf`; every record's path and every `*_dir_for()` come off that one
+    `ledger_dir` is `<project>/.superworker`; every record's path and every `*_dir_for()` come off that one
     root at call time, so a caller that names the ledger has named all of it.
     """
     global LEDGER_DIR

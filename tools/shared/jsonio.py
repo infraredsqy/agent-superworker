@@ -15,7 +15,7 @@ everywhere:
     read_json_strict(path, label)               the read, and what it says when it cannot
 
 `json_bytes` is where "a record's bytes" is decided -- indent, the text as it is, sorted keys only
-when the caller's writer sorts them, the platform line separator, no trailing newline. The write is
+when the caller's writer sorts them, LF on every platform, no trailing newline. The write is
 that payload landed in binary, so the bytes on disk are the bytes computed, and a caller that needs to
 know whether a write would change a file asks for them instead of writing its own `json.dumps`.
 
@@ -24,7 +24,7 @@ carry FILE_SHARE_DELETE, so `os.replace` onto a file some reader holds open rais
 The window is tiny and the retry is bounded well under a second.
 
 A read has exactly three outcomes, and this is the one place their wording lives -- every caller of
-a `.pf/` record reports them the same way:
+a `.superworker/` record reports them the same way:
 
     the file is not there       -> None. An absent record is the caller's own default, not a failure.
     the bytes are not UTF-8     -> JsonReadError('<label> is not valid UTF-8: <why>')
@@ -78,13 +78,14 @@ def json_bytes(data, *, sort_keys: bool = False) -> bytes:
     """One record's bytes on disk -- the exact payload `atomic_write_json` lands.
 
     The one definition of the format: `indent=2`, the text as it is (Chinese stays readable), keys
-    sorted only when the caller's own writer sorts them, the platform line separator (these files are
-    CRLF on Windows), and no trailing newline. A caller that has to know whether a write would change
-    a file -- the ledger merge driver does -- asks for these bytes rather than spelling a second
-    `json.dumps` out, which is one byte away from every merge looking like a change.
+    sorted only when the caller's own writer sorts them, LF on every platform (a record written on
+    Windows and one written on POSIX are the same bytes, so a repository's history carries no
+    line-ending churn), and no trailing newline. A caller that has to know whether a write would
+    change a file -- the ledger merge driver does -- asks for these bytes rather than spelling a
+    second `json.dumps` out, which is one byte away from every merge looking like a change.
     """
     text = json.dumps(data, indent=2, ensure_ascii=False, sort_keys=sort_keys)
-    return text.replace('\n', os.linesep).encode('utf-8')
+    return text.encode('utf-8')
 
 
 def atomic_write_bytes(path, payload: bytes) -> None:

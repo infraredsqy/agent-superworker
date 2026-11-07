@@ -4,7 +4,7 @@
 Usage:
     python signal.py <cycle> <node> <status> -s <summary> [-o <outputs_json>]
 
-One signal per node per cycle, at `.pf/signals/<cycle>/<node>.json`. A terminal signal on
+One signal per node per cycle, at `.superworker/signals/<cycle>/<node>.json`. A terminal signal on
 disk is what tells the pipeline this node's work is done and only its close is left; how the node's
 own work was split, and how many sessions it took, never reaches this file.
 
@@ -33,7 +33,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -46,16 +46,16 @@ def _store():
     """`state.store`, loaded by path -- the record's owner, and the one writer of a signal.
 
     The record commands do not write where cwd points when cwd is a linked worktree: they map the
-    worktree back to the main tree, because `.pf/` lives there and only there. A worker that runs
+    worktree back to the main tree, because `.superworker/` lives there and only there. A worker that runs
     THIS script directly (not through handoff.py, which resolves the root
     itself and passes `base_dir`) would otherwise trust cwd and drop the signal into the worktree's
-    stale `.pf/` fork -- data the main tree never reads, lost in effect. Loading store by path reuses
+    stale `.superworker/` fork -- data the main tree never reads, lost in effect. Loading store by path reuses
     its one implementation of that sense (`_write_signal`, the record's one writer), which is what a
     caller that passes no `base_dir` lands on.
     """
     global _STORE
     if _STORE is None:
-        _STORE = _loader().load_by_path('pf_state_store',
+        _STORE = _loader().load_by_path('sw_state_store',
                                         CONDUCT / 'state' / 'store.py',
                                         register=True, reuse=True)
     return _STORE
@@ -72,7 +72,7 @@ def write_signal(cycle: str, node: str, status: str, summary: str,
     Factored out of main() so handoff.py can write the signal and carry on in the same process,
     instead of shelling out to a second Python start on the last line of every node.
 
-    The record -- its six keys, its path under `.pf/signals/`, its timestamp -- belongs to
+    The record -- its six keys, its path under `.superworker/signals/`, its timestamp -- belongs to
     `state.store`, which writes it: this function checks what a caller handed over and hands
     it on. `base_dir` is that store's signals directory, for a caller that already resolved the
     project root (`handoff.py` does, from a worktree cwd); it is where THIS one write lands and

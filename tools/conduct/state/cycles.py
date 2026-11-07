@@ -1,6 +1,6 @@
 """The `cycle` group: one line of work, and every verb that acts on it.
 
-Owns the verbs of `pf cycle` -- create / start / rename / status / policy / list / current /
+Owns the verbs of `sw cycle` -- create / start / rename / status / policy / list / current /
 show / hold / close / retry -- plus the vocabulary a cycle carries: VALID_TAGS, `_parse_cycle_tags`
 and the policy table (`POLICY_*`, and `cycle_policy` as the one reading of it).
 
@@ -57,8 +57,8 @@ def _require_tags(tags: list, verb: str) -> None:
 # readers of every one of them truncate the chain to this record: the pick reads `parallel`, the stop
 # answer reads `when_shelved`, `resolve_spawner` reads `spawner`. A value under one of these names in
 # a project or a global file would be a setting nothing reads, which is exactly the "I set it, why is
-# it not in force" this tree refuses to ship -- so `pf config` does not know these three names and
-# `pf cycle policy` is the door that writes them.
+# it not in force" this tree refuses to ship -- so `sw config` does not know these three names and
+# `sw cycle policy` is the door that writes them.
 #
 # `when_shelved`: a node closed out without delivering (so it was shelved, waiting for a human to
 # rescue it) -- does this line stop and wait, or go on to pick the next node. Default `stop`: the
@@ -66,7 +66,7 @@ def _require_tags(tags: list, verb: str) -> None:
 # `parallel`: how many nodes this line holds, and how many sessions it opens, at once. Default 1 (one
 # slot at a time). It is a **cap**: whether nodes can run side by side is the dependency graph's call.
 # `spawner`: which spawner opens this line's sessions (`dsh` / `zcode`). Words only, never a path:
-# the cycle record merges across machines with `.pf/`, so a machine-local path landing in the state
+# the cycle record merges across machines with `.superworker/`, so a machine-local path landing in the state
 # file is a dead value on another machine; where a path is wanted, use the one-off `--spawner <path>`.
 LINE_POLICIES = {
     'when_shelved': {
@@ -94,7 +94,7 @@ LINE_POLICIES = {
 #: The table `cycle policy` judges with: the line's own three, then every knob a declaration brings
 #: that takes the cycle layer. A plugin's thresholds and its switch do walk the whole chain, so this
 #: line may state them (one chain, one place to state a value); the core's own settings do not take
-#: this layer, so `max_agents` is not a policy and `pf cycle policy` refuses it. Derived from
+#: this layer, so `max_agents` is not a policy and `sw cycle policy` refuses it. Derived from
 #: `knobs.specs()` -- no plugin's name is spelled in this file.
 _SPECS = {**LINE_POLICIES,
           **{key: cell for key, cell in knobs.specs().items()
@@ -150,7 +150,7 @@ def _parse_policy_value(key: str, text: str):
     """One policy value from the command line, parsed by its kind; `None` means "drop the entry".
 
     `off` is a **clearing word** for `number` / `integer` / `word`: it drops this line's entry, which
-    is the same move `pf config unset --cycle` makes. On a `switch` it is a **value** -- a switch is
+    is the same move `sw config unset --cycle` makes. On a `switch` it is a **value** -- a switch is
     turned off by writing `off`, and dropping its entry is `config unset`'s move. The two meanings
     never meet, because the kind decides which one applies.
 
@@ -205,7 +205,7 @@ def write_cycle_policy(cycle_id: str, key: str, value) -> dict:
     """Write one slot of this line's own layer (`value is None` drops it), and hand back the whole
     effective policy set.
 
-    **The one writer of this part of the cycle record**: `cycle policy` and `pf config set --cycle`
+    **The one writer of this part of the cycle record**: `cycle policy` and `sw config set --cycle`
     both come through here, so the record has one writer and one place where its `updated_at` moves.
     """
     with _ledger_lock():
@@ -268,7 +268,7 @@ def cmd_cycle_create(cycle_id: str, title: str | None,
     # untouched. Both paths must land on the same list, or `art` is read as three letters on one of
     # them.
     tags = _parse_cycle_tags(tags)
-    _require_tags(tags, 'pf cycle create')
+    _require_tags(tags, 'sw cycle create')
     with _ledger_lock():
         state = _read_state()
         for c in state['cycles']:
@@ -279,7 +279,7 @@ def cmd_cycle_create(cycle_id: str, title: str | None,
         active = [c['id'] for c in state['cycles'] if c.get('status') == 'active']
         if active and not force:
             print(f'Error: cycle(s) {active} still active -- one cycle at a time. Take them out of '
-                  f'service (`pf cycle status <id> inactive`), or pass --force to run two anyway.',
+                  f'service (`sw cycle status <id> inactive`), or pass --force to run two anyway.',
                   file=sys.stderr)
             sys.exit(1)
         if active and force:
@@ -315,7 +315,7 @@ def cmd_cycle_policy(cycle_id: str, key: str, value: str) -> None:
     integer, a word a word from its candidate table, a switch `on` or `off`. `off` drops the entry
     for a number / integer / word ("not configured": the next layer of the chain shows through); on
     a switch it is a value -- a switch is turned off by writing `off`, and dropping its entry is
-    `pf config unset --cycle`.
+    `sw config unset --cycle`.
     """
     stored = _parse_policy_value(key, value)
     effective = write_cycle_policy(cycle_id, key, stored)
@@ -328,7 +328,7 @@ def cmd_cycle_start(cycle_id: str, title: str | None,
 
     The launcher should not have to know how the DAG is ranked, so the pick happens here, using the
     same rule a close uses. If the graph has nothing ready, this refuses: there is no work to run,
-    and inventing some is pf-route's job, done by a human, not the pipeline's.
+    and inventing some is sw-route's job, done by a human, not the pipeline's.
 
     `--tags` is the filter set this cycle will pick from, and it has to reach the PICK here: the
     pick happens while the cycle is being created, so a set that only landed in the cycle record
@@ -350,7 +350,7 @@ def cmd_cycle_start(cycle_id: str, title: str | None,
     pipeline = _load_pipeline()
 
     tags = _parse_cycle_tags(tags)
-    _require_tags(tags, 'pf cycle start')
+    _require_tags(tags, 'sw cycle start')
     # The command-line slot goes through the same parsing door `cycle policy` uses: a positive
     # integer lands on disk, `off` falls back to the default.
     stated = _parse_policy_value('parallel', parallel) if parallel is not None else None
@@ -373,7 +373,7 @@ def cmd_cycle_start(cycle_id: str, title: str | None,
                       + '\n'.join(pipeline.tag_blocked_lines(blocked))
                       + '\nWiden --tags (a node with no tag is in every range).', file=sys.stderr)
                 sys.exit(2)
-            print('Error: the graph has no ready node -- there is no work to run. Have pf-route '
+            print('Error: the graph has no ready node -- there is no work to run. Have sw-route '
                   'build the graph first, then start the line.', file=sys.stderr)
             sys.exit(2)
         node = ranked[0]

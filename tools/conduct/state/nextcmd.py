@@ -104,7 +104,7 @@ def cmd_next(args) -> None:
         if len(running) > 1:
             print('Error: several cycles are active (' + ', '.join(running)
                   + '); bare `next` cannot pick one. Name the line: '
-                  'pf next --cycle <id> …', file=sys.stderr)
+                  'sw next --cycle <id> …', file=sys.stderr)
             sys.exit(2)
     try:
         if after:
@@ -203,26 +203,26 @@ def cmd_dispatch(args) -> None:
 
     The prompt this verb starts is written by whichever step PINS the node, never by this one: the
     step that picks a node pins it and writes its prompt to
-    `.pf/meta/launch/<cycle>/<node_id>/prompt.txt`. Usually that is the closing call
+    `.superworker/meta/launch/<cycle>/<node_id>/prompt.txt`. Usually that is the closing call
     (`next --after <node> --json`); after an insertion it is a later `next`, because the insertion's
     close pins nothing and writes no prompt. The worker that closed its node still has to commit and
     push its own work, and the next session boots in the SAME worktree and pulls on its first line,
     so starting it before the push would hand it a half-finished tree. The two halves are therefore
     two commands:
 
-        pf next --after <node> --json     settle it, write the next prompt
+        sw next --after <node> --json     settle it, write the next prompt
         git commit … && git push                       the worker's own work
-        pf dispatch <cycle>               start that prompt's session (this verb)
+        sw dispatch <cycle>               start that prompt's session (this verb)
 
     It only ever READS the ledger and starts one session: no `status`, no `path`, no `holding`,
-    no writes anywhere except the spawner's own `.pf/meta/` bookkeeping (the stale-marker cleanup,
+    no writes anywhere except the spawner's own `.superworker/meta/` bookkeeping (the stale-marker cleanup,
     which lives in `dsh-spawn.ps1` and is untouched here). A real spawn also drops the delivered
     launch directory, exactly as `next --spawn` does; `DSH_CONDUCT_SPAWN_DRY_RUN=1` reports the call
     without opening a session and keeps the prompt file, which is what a human retries by hand.
 
     The one question it asks of the tree before spawning is the dispatch gate (`pipeline.gates`): the
     plugins installed at that timing say whether a session may open now, and this verb is a dispatch
-    -- skipping it here would leave `pf dispatch` as the way around a gate. A refused gate writes
+    -- skipping it here would leave `sw dispatch` as the way around a gate. A refused gate writes
     nothing, opens nothing and leaves the line in service, exactly like the `next` path's refusal.
     """
     pipeline = _load_pipeline()
@@ -242,7 +242,7 @@ def cmd_dispatch(args) -> None:
     # The account carries exactly the two words, so this one comparison is the whole judgement.
     if cycle.get('status') != 'active':
         print(f'Error: cycle "{cycle_id}" is {cycle.get("status")!r}, not active: a line that is not '
-              f'in service does not dispatch. `pf cycle status {cycle_id} active` '
+              f'in service does not dispatch. `sw cycle status {cycle_id} active` '
               f'puts it back.', file=sys.stderr)
         sys.exit(2)
     holding = _holding_ids(cycle)
@@ -276,7 +276,7 @@ def cmd_dispatch(args) -> None:
         prompt = pipeline.launch_prompt_path(root, cycle_id, node_id)
         if not prompt.is_file():
             print(f'Error: no prompt file at {prompt}. That file is written by the step that pinned '
-                  f'this node: usually the closing call (`pf next --after {node_id} --json`), and '
+                  f'this node: usually the closing call (`sw next --after {node_id} --json`), and '
                   f'after an insertion the later `next` that picks the node up.',
                   file=sys.stderr)
             sys.exit(2)
@@ -286,9 +286,9 @@ def cmd_dispatch(args) -> None:
         print(f'Error: every node this cycle holds already had its session started ({named}), so '
               f'there is nothing to dispatch: doing it again would boot a second session onto the '
               f'same node. To reopen one, retry it the documented way: '
-              f'`pf cycle retry {cycle_id} <node> --drop`, then '
-              f'`pf cycle hold {cycle_id} <node>`, then '
-              f'`pf next --cycle {cycle_id} --spawn --json`.', file=sys.stderr)
+              f'`sw cycle retry {cycle_id} <node> --drop`, then '
+              f'`sw cycle hold {cycle_id} <node>`, then '
+              f'`sw next --cycle {cycle_id} --spawn --json`.', file=sys.stderr)
         sys.exit(2)
     dry = os.environ.get('DSH_CONDUCT_SPAWN_DRY_RUN', '') not in ('', '0', 'false', 'False')
     spawned = []

@@ -148,10 +148,10 @@ def zcode_sandbox(test, node_id=None):
     con.commit()
     con.close()
     ws = root / 'ws'
-    (ws / '.pf').mkdir(parents=True)
+    (ws / '.superworker').mkdir(parents=True)
     prompt = (root / 'launch' / node_id / 'prompt.txt') if node_id else (root / 'prompt.txt')
     prompt.parent.mkdir(parents=True, exist_ok=True)
-    prompt.write_text('# /pf-conduct drill\n', encoding='utf-8')
+    prompt.write_text('# /sw-conduct drill\n', encoding='utf-8')
     env = dict(_child_env(), ZCODE_DATA_BASE_DIR=str(root / 'sandbox'),
                DSH_CONDUCT_SPAWN_AT='')
     return db, ws, prompt, env
@@ -267,14 +267,14 @@ class TestSpawnerChoice(unittest.TestCase):
     # probe -- a probe that fails intermittently must not send a line pinned to zcode back to DSH.
 
     def policy_root(self, policies):
-        """A minimal project: `.pf/state.json` with one cycle, carrying `policies` (or none)."""
+        """A minimal project: `.superworker/state.json` with one cycle, carrying `policies` (or none)."""
         root = Path(tempfile.mkdtemp(prefix='conduct-spawner-policy-'))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
-        (root / '.pf').mkdir()
+        (root / '.superworker').mkdir()
         cycle = {'id': 'cyc', 'status': 'active', 'holding': []}
         if policies is not None:
             cycle['policies'] = policies
-        (root / '.pf' / 'state.json').write_text(
+        (root / '.superworker' / 'state.json').write_text(
             json.dumps({'cycles': [cycle]}), encoding='utf-8')
         return root
 
@@ -605,7 +605,7 @@ class TestSessionMatch(unittest.TestCase):
     column-less shape, without unpinning the column shape older desktops still write.
     """
 
-    PROMPT_TITLE = '# /pf-conduct drill'  # zcode_sandbox writes this prompt
+    PROMPT_TITLE = '# /sw-conduct drill'  # zcode_sandbox writes this prompt
 
     def queued(self):
         """One queued row for QUEUED_NODE: (db, workspace, prompt, env, automation_id)."""

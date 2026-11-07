@@ -72,10 +72,10 @@ class CliCases:
         made = action['node_id']
         self.assertEqual(nodes[made]['dependencies'], [NODE])
         self.assertEqual(nodes[NODE2]['dependencies'], [made])
-        self.assertTrue((sb.root / '.pf' / 'nodes' / made / 'spec.md').is_file())
+        self.assertTrue((sb.root / '.superworker' / 'nodes' / made / 'spec.md').is_file())
         # 2. ... and opens nothing: no prompt, no pin, nothing on the line
         self.assertEqual(sb.holding_ids(), [], 'the insertion pinned a node')
-        self.assertFalse((sb.root / '.pf' / 'meta' / 'launch' / 'cyc' / made).exists())
+        self.assertFalse((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / made).exists())
         self.assertNotIn('prompt', action)
         # 3. the NEXT call is what dispatches it -- the pick decides, not the insertion
         dispatched, proc = sb.next_cli()
@@ -230,7 +230,7 @@ class TestTicketDrive(DriveCases, Base):
         self.assertEqual(len(sb.dag()['nodes']), 3)
         made = inserted['node_id']
         # only the metric that crossed comes in; the other key on the note is read by nobody
-        spec = (sb.root / '.pf' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
+        spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         self.assertIn(TICKET.reading, spec)
         self.assertIn(f'"reading": {{"{TICKET.reading}"', spec)
         self.assertNotIn(POOL.reading, sb.dag()['nodes'][made]['title'])
@@ -322,10 +322,10 @@ class TestTheForm(Base):
     @requires_plugin(TICKET.plugin)
     def test_the_form_writes_nothing(self):
         sb = self.a_line((TICKET.line, TICKET.at))
-        before = (sb.root / '.pf' / 'state.json').read_text(encoding='utf-8')
+        before = (sb.root / '.superworker' / 'state.json').read_text(encoding='utf-8')
 
         self.form(sb)
 
-        self.assertEqual((sb.root / '.pf' / 'state.json').read_text(encoding='utf-8'), before)
-        signals = (sb.root / '.pf' / 'signals')
+        self.assertEqual((sb.root / '.superworker' / 'state.json').read_text(encoding='utf-8'), before)
+        signals = (sb.root / '.superworker' / 'signals')
         self.assertEqual(sorted(signals.rglob('*.json')) if signals.exists() else [], [])

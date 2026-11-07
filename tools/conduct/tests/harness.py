@@ -1,14 +1,14 @@
 """Helpers for exercising the conduct pipeline against a throwaway project.
 
-The shape: **one DAG node = one cycle step = one `pf-conduct` session**, recorded in the cycle
+The shape: **one DAG node = one cycle step = one `sw-conduct` session**, recorded in the cycle
 record's own `path` inside `state.json`. There is no stage and no round -- no per-round file, no
 second pointer, no cell index anywhere. A node's work is done when its signal is on disk
-(`.pf/signals/<cycle>/<node_id>.json`), and the worker that ran it closes it with its ONE
+(`.superworker/signals/<cycle>/<node_id>.json`), and the worker that ran it closes it with its ONE
 `next --after <node_id>` call.
 
 **Two roots.** The account -- the DAG, `state.json`, the signals, the instructions account, a
-node's own text -- is the LEDGER at `<project>/.pf/`. Everything
-disposable is the SCRATCH root at `<project>/.pf/`: a node's generated `temp/`, and the
+node's own text -- is the LEDGER at `<project>/.superworker/`. Everything
+disposable is the SCRATCH root at `<project>/.superworker/`: a node's generated `temp/`, and the
 pipeline's own dispatch plumbing (`meta/launch/`, the broken-chain marker).
 
 Two requirements pull against each other here, and the design is the compromise between them:

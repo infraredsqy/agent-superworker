@@ -37,7 +37,7 @@ class TestNodeShape(Base):
         action = sb.next()
 
         self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual(skill_of(action), 'pf-conduct')
+        self.assertEqual(skill_of(action), 'sw-conduct')
         self.assertEqual(action['node_id'], NODE)
         # The dispatch names the node, not a cell: there is no index left in the action.
         self.assertNotIn('stage', action)
@@ -53,15 +53,16 @@ class TestNodeShape(Base):
         self.assertEqual([h['id'] for h in cycle['holding']], [NODE])
         self.assertTrue(cycle['holding'][0]['since'], 'opening a node did not stamp the clock')
         self.assertEqual(cycle.get('path'), [])
-        self.assertFalse((sb.root / '.pf' / 'loops').exists(),
+        self.assertFalse((sb.root / '.superworker' / 'loops').exists(),
                          'the deleted per-round directory came back')
-        # What a project's `.pf/` holds: the record itself, then the three things `meta/` carries
-        # (this step's own prompt file, and the one lock the three tools share).
-        self.assertEqual(sorted(p.name for p in (sb.root / '.pf').iterdir()),
+        # What a project's `.superworker/` holds: the record itself, then the three things `meta/` carries
+        # (this step's own prompt file). The lock left nothing behind: it exists while it is held, and
+        # the write that took it is over.
+        self.assertEqual(sorted(p.name for p in (sb.root / '.superworker').iterdir()),
                          ['.gitattributes', '.gitignore', 'ideas.json', 'meta', 'nodes',
                           'state.json'])
-        self.assertEqual(sorted(p.name for p in (sb.root / '.pf' / 'meta').iterdir()),
-                         ['launch', 'ledger.lock'])
+        self.assertEqual(sorted(p.name for p in (sb.root / '.superworker' / 'meta').iterdir()),
+                         ['launch'])
 
     def test_the_node_is_recorded_when_the_step_opens_not_when_it_reports(self):
         """That is what lets a human add nodes mid-run without steering the step in flight."""
@@ -131,7 +132,7 @@ class TestSettleAndClose(Base):
     def test_a_ticket_on_disk_is_what_means_the_work_is_done(self):
         """The signal IS the outcome. There is no verdict to ask for and nobody to ask."""
         sb = self.pinned()
-        sb.write_signal('cyc', NODE, 'completed', 'pf-conduct finished')
+        sb.write_signal('cyc', NODE, 'completed', 'sw-conduct finished')
         waiting = sb.next()
 
         self.assertEqual(waiting['action'], 'wait')
@@ -761,7 +762,7 @@ class TestShelvedNodes(Base):
     vanish from the human-facing list either.
 
     This status is written by the close itself: a node that did not deliver (a `failed` / `stopped`
-    note) lands on it, nobody may start it, and it waits for a `pf dag revive` to put it back. So
+    note) lands on it, nobody may start it, and it waits for a `sw dag revive` to put it back. So
     both have to be pinned -- it is not treated as startable, and it does not quietly drop out of the
     reader's sight.
     """
@@ -855,7 +856,7 @@ class TestTheModeWord(Base):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestThePromptPath(Base):
-    """`.pf/meta/launch/...` is spelled in exactly one place in the implementation package:
+    """`.superworker/meta/launch/...` is spelled in exactly one place in the implementation package:
     `prompts.launch_dir`."""
 
     def test_the_launch_path_is_built_in_one_file(self):

@@ -1,21 +1,21 @@
-"""The pieces in front of `pf`'s door: `pf.cmd` on Windows, the project root `doctor` names, and the
+"""The pieces in front of `sw`'s door: `sw.cmd` on Windows, the project root `doctor` names, and the
 plugins `doctor` says are installed.
 
-All three live in the pf layer, and what is measured is the rules of that layer:
+All three live in the sw layer, and what is measured is the rules of that layer:
 
-  * `pf.cmd` hands the command it receives to `pf.py` as it is, exactly once: whichever interpreter
-    it finds is the one used, and that interpreter's exit code is `pf`'s exit code. A non-zero exit
-    especially has to hold -- `pf handoff` / `pf merge-ledger` are live-fire commands, and being run
+  * `sw.cmd` hands the command it receives to `sw.py` as it is, exactly once: whichever interpreter
+    it finds is the one used, and that interpreter's exit code is `sw`'s exit code. A non-zero exit
+    especially has to hold -- `sw handoff` / `sw merge-ledger` are live-fire commands, and being run
     again by the fallback interpreter is a second shot.
-  * in PowerShell the word `pf` is the `.ps1` shim, not the `.cmd` beside it, and the argv it was
+  * in PowerShell the word `sw` is the `.ps1` shim, not the `.cmd` beside it, and the argv it was
     handed reaches the tool whole -- on both hosts, the one a skill session runs and Windows
     PowerShell 5.1. That is what the handoff line the skill writes down needs: cmd.exe hands a batch
     file the caller's rendering with its double quotes still in it (`%*` reads back
     `-o {"deliverable":"x y"}`), but with the argument boundaries already cut (`%1` and `"%~1"` are
     `-o`), and the CRT parsing `python.exe`'s command line eats a quote as a delimiter -- so
-    `pf handoff ... -o '{"deliverable":"…"}'` reached the tool as `{deliverable:…}`. The probed
+    `sw handoff ... -o '{"deliverable":"…"}'` reached the tool as `{deliverable:…}`. The probed
     interpreter, the single run and the exit code hold here too.
-  * the project root `doctor` reports is the same root the tools it forwards (`pf dag` / `pf issue`)
+  * the project root `doctor` reports is the same root the tools it forwards (`sw dag` / `sw issue`)
     read the ledger by: cwd is the root, the one exception being that a linked worktree goes back to
     the main tree. That the two readings agree is what these cases prove.
   * `doctor`'s `plugins:` section: what the scan found, how each one works (its own summary and the
@@ -35,7 +35,7 @@ All three live in the pf layer, and what is measured is the rules of that layer:
   * `help` and `--help` print the same body (the parser's own), and the command list is not copied a
     second time: the listing and the router are both grown from the entry's one routing table.
 
-Every case builds its own thing in a temp dir (a fake `pf.py` plus a real `pf.cmd`, a throwaway git
+Every case builds its own thing in a temp dir (a fake `sw.py` plus a real `sw.cmd`, a throwaway git
 repository plus one worktree, or a project plus a plugins directory), runs the real CLI and cleans up
 afterwards; no real project is touched, no session is opened, and every command stays inside the 5 s
 budget.
@@ -67,14 +67,14 @@ __all__ = ['TestPfCmdShim', 'TestPfShimInPowerShell', 'TestPfShimInWindowsPowerS
 
 PYTHON = sys.executable
 BIN = TOOLS_DIR / 'bin'
-PF = BIN / 'pf.py'
-SHIM = BIN / 'pf.cmd'
+SW = BIN / 'sw.py'
+SHIM = BIN / 'sw.cmd'
 CMD = os.environ.get('COMSPEC', 'cmd.exe')
 
-#: The shim PowerShell takes instead, when it sits beside `pf.cmd`: a bare word resolves to the `.ps1`
+#: The shim PowerShell takes instead, when it sits beside `sw.cmd`: a bare word resolves to the `.ps1`
 #: first, in both PS hosts. It is what carries an argument with a double quote in it whole -- the whole
 #: of the handoff line's JSON.
-PS1 = BIN / 'pf.ps1'
+PS1 = BIN / 'sw.ps1'
 PWSH = shutil.which('pwsh')
 
 #: The other host that takes the `.ps1`: Windows PowerShell 5.1, which does not say how it renders a
@@ -85,11 +85,11 @@ WINDOWS_POWERSHELL = shutil.which('powershell')
 #: The method the default fixture declaration names, and the skill folder the fixture writes beside it.
 #: A fixture writes its own skill instead of borrowing the name of one this checkout happens to ship:
 #: the skill lives in the plugin folder, so the two are one thing to write.
-FIXTURE_METHOD = 'pf-fixture-skill'
+FIXTURE_METHOD = 'sw-fixture-skill'
 
-#: A fake `pf.py`: every run appends one line to `runs.txt` (recording the argv it received) and then
-#: exits with `FAKE_PF_EXIT`. One fake is enough: these cases measure "how many times it ran, and
-#: whose exit code it is" -- what `pf.py` itself does is the real one's business.
+#: A fake `sw.py`: every run appends one line to `runs.txt` (recording the argv it received) and then
+#: exits with `FAKE_SW_EXIT`. One fake is enough: these cases measure "how many times it ran, and
+#: whose exit code it is" -- what `sw.py` itself does is the real one's business.
 FAKE_PF = '''\
 import os
 import sys
@@ -97,14 +97,14 @@ import sys
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, 'runs.txt'), 'a', encoding='utf-8') as fh:
     fh.write(' '.join(sys.argv[1:]) + chr(10))
-sys.exit(int(os.environ.get('FAKE_PF_EXIT', '0')))
+sys.exit(int(os.environ.get('FAKE_SW_EXIT', '0')))
 '''
 
-#: A second fake `pf.py`, for the cases that read argument boundaries: one JSON array per run, so one
+#: A second fake `sw.py`, for the cases that read argument boundaries: one JSON array per run, so one
 #: argument carrying a space cannot be read back as two (the space-joined line above cannot tell). It
 #: stands at the same door -- whatever the shim hands over is what it records, and its code is the
 #: command's.
-FAKE_PF_ARGV = '''\
+FAKE_SW_ARGV = '''\
 import json
 import os
 import sys
@@ -112,13 +112,13 @@ import sys
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, 'runs.txt'), 'a', encoding='utf-8') as fh:
     fh.write(json.dumps(sys.argv[1:], ensure_ascii=False) + chr(10))
-sys.exit(int(os.environ.get('FAKE_PF_EXIT', '0')))
+sys.exit(int(os.environ.get('FAKE_SW_EXIT', '0')))
 '''
 
-#: A third fake `pf.py`: the same one-JSON-array-per-run record as `FAKE_PF_ARGV`, plus one line on
+#: A third fake `sw.py`: the same one-JSON-array-per-run record as `FAKE_SW_ARGV`, plus one line on
 #: stdout. Whether the host's own capture of a call still sees the child is read off that line, so the
 #: fixture that measures it needs a child with something to say.
-FAKE_PF_TICKET = '''\
+FAKE_SW_TICKET = '''\
 import json
 import os
 import sys
@@ -127,7 +127,7 @@ here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, 'runs.txt'), 'a', encoding='utf-8') as fh:
     fh.write(json.dumps(sys.argv[1:], ensure_ascii=False) + chr(10))
 print('TICKET-LINE')
-sys.exit(int(os.environ.get('FAKE_PF_EXIT', '0')))
+sys.exit(int(os.environ.get('FAKE_SW_EXIT', '0')))
 '''
 
 #: A fake `py` (the Python launcher): records the whole command the shim handed it, then hands the
@@ -145,36 +145,36 @@ exit /b %ERRORLEVEL%
 '''
 
 
-def pf(*args, cwd):
-    """The real `pf` entry, as a real process, run from `cwd` -- the forwarding layer and the shim in front of it share this one."""
-    return run_argv([PF, *[str(a) for a in args]], cwd=cwd, check=False)
+def sw(*args, cwd):
+    """The real `sw` entry, as a real process, run from `cwd` -- the forwarding layer and the shim in front of it share this one."""
+    return run_argv([SW, *[str(a) for a in args]], cwd=cwd, check=False)
 
 
-@unittest.skipUnless(os.name == 'nt', 'pf.cmd is the Windows shim')
+@unittest.skipUnless(os.name == 'nt', 'sw.cmd is the Windows shim')
 class TestPfCmdShim(unittest.TestCase):
-    """`pf.cmd`: one command runs exactly once, and the exit code goes out as it came in."""
+    """`sw.cmd`: one command runs exactly once, and the exit code goes out as it came in."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-cmd-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-cmd-')
         self.addCleanup(tmp.cleanup)
         self.dir = Path(tmp.name)
-        # A real shim plus a fake pf.py: the shim looks for the `pf.py` beside itself, so copying it
+        # A real shim plus a fake sw.py: the shim looks for the `sw.py` beside itself, so copying it
         # into temp is enough to drive the whole thing.
-        shutil.copyfile(SHIM, self.dir / 'pf.cmd')
-        (self.dir / 'pf.py').write_text(FAKE_PF, encoding='utf-8')
+        shutil.copyfile(SHIM, self.dir / 'sw.cmd')
+        (self.dir / 'sw.py').write_text(FAKE_PF, encoding='utf-8')
         self.runs_file = self.dir / 'runs.txt'
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def runs(self):
-        """Every run of the fake pf.py, in order, as the argv it received."""
+        """Every run of the fake sw.py, in order, as the argv it received."""
         if not self.runs_file.exists():
             return []
         return self.runs_file.read_text(encoding='utf-8').splitlines()
 
     def shim(self, *args, exit_code='0', env=None):
         environ = _child_env() if env is None else env
-        environ['FAKE_PF_EXIT'] = exit_code
-        return _run_command([CMD, '/c', str(self.dir / 'pf.cmd'), *[str(a) for a in args]],
+        environ['FAKE_SW_EXIT'] = exit_code
+        return _run_command([CMD, '/c', str(self.dir / 'sw.cmd'), *[str(a) for a in args]],
                             cwd=self.dir, env=environ, check=False)
     # ── cases ────────────────────────────────────────────────────────────────
     def test_a_zero_exit_runs_the_command_once(self):
@@ -219,19 +219,19 @@ class TestPfCmdShim(unittest.TestCase):
         handed = (self.dir / 'py-runs.txt').read_text(encoding='utf-8')
         self.assertIn('-3', handed, f'the whole command the shim handed to py: {handed!r}')
         self.assertIn('-X utf8', handed)
-        self.assertIn('pf.py', handed)
+        self.assertIn('sw.py', handed)
 
 
 class _PfShimCases:
-    """In PowerShell the word `pf` is the `.ps1` shim -- and the argv it was handed reaches the tool
+    """In PowerShell the word `sw` is the `.ps1` shim -- and the argv it was handed reaches the tool
     whole.
 
     A bare word resolves to the `.ps1` before the `.cmd` beside it, and that is what the handoff line
     the skill writes down needs: cmd.exe hands a batch file the caller's rendering with its double
     quotes still in it, but with the argument boundaries already cut, and the CRT parsing the target's
-    command line eats a quote as a delimiter -- so `pf handoff ... -o '{"deliverable":"…"}'` reached
-    `pf.py` as `{deliverable:…}`. The shim's own contract is measured here the way the cases above
-    measure `pf.cmd`'s: probed interpreter, one run, the command's exit code.
+    command line eats a quote as a delimiter -- so `sw handoff ... -o '{"deliverable":"…"}'` reached
+    `sw.py` as `{deliverable:…}`. The shim's own contract is measured here the way the cases above
+    measure `sw.cmd`'s: probed interpreter, one run, the command's exit code.
 
     The host is the subclass's `HOST`: the two hosts that resolve the `.ps1` render a native command's
     arguments differently, so each is measured rather than taken for the other.
@@ -243,22 +243,22 @@ class _PfShimCases:
     #: The line the skill writes down, and the argv it names: a note with a space, and a JSON payload
     #: carrying double quotes and a space inside a value.
     PAYLOAD = '{"deliverable":"x y","files":["a b"]}'
-    DOC_LINE = "pf handoff cycle-1 node-1 completed -s 'the note' -o '" + PAYLOAD + "'"
+    DOC_LINE = "sw handoff cycle-1 node-1 completed -s 'the note' -o '" + PAYLOAD + "'"
     DOC_ARGV = ['handoff', 'cycle-1', 'node-1', 'completed', '-s', 'the note', '-o', PAYLOAD]
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-shim-ps-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-shim-ps-')
         self.addCleanup(tmp.cleanup)
         self.dir = Path(tmp.name)
         # Both real shims into temp, so which one PowerShell takes is this case's own reading; the
-        # fake `pf.py` records the argv, so nothing here depends on the real tool.
-        shutil.copyfile(SHIM, self.dir / 'pf.cmd')
-        shutil.copyfile(PS1, self.dir / 'pf.ps1')
-        (self.dir / 'pf.py').write_text(FAKE_PF_ARGV, encoding='utf-8')
+        # fake `sw.py` records the argv, so nothing here depends on the real tool.
+        shutil.copyfile(SHIM, self.dir / 'sw.cmd')
+        shutil.copyfile(PS1, self.dir / 'sw.ps1')
+        (self.dir / 'sw.py').write_text(FAKE_SW_ARGV, encoding='utf-8')
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def runs(self, directory=None):
-        """Every run of the fake pf.py, in order, as the argv it received -- boundaries exact."""
+        """Every run of the fake sw.py, in order, as the argv it received -- boundaries exact."""
         path = (self.dir if directory is None else directory) / 'runs.txt'
         if not path.exists():
             return []
@@ -269,13 +269,13 @@ class _PfShimCases:
         """One `HOST` process running `command`, this case's directory first on PATH.
 
         `path` replaces the whole PATH: that is how "no python stands on it" is built, and System32 is
-        left in it for the same reason the `pf.cmd` cases leave it in. `shim_dir` replaces "this case's
+        left in it for the same reason the `sw.cmd` cases leave it in. `shim_dir` replaces "this case's
         directory" as the fixture the bare word resolves to -- the case that measures a checkout path
         carrying a space builds its fixture one directory down, inside such a name.
         """
         fixture = self.dir if shim_dir is None else shim_dir
         environ = _child_env() if env is None else env
-        environ['FAKE_PF_EXIT'] = exit_code
+        environ['FAKE_SW_EXIT'] = exit_code
         if path is None:
             environ['PATH'] = os.pathsep.join([str(fixture), environ['PATH']])
         else:
@@ -297,16 +297,16 @@ class _PfShimCases:
         self.assertEqual([self.DOC_ARGV], self.runs(),
                          'an argument of the doc line did not arrive as it was written')
 
-        found = self.shim('(Get-Command pf).Source')
+        found = self.shim('(Get-Command sw).Source')
         self.assertEqual(0, found.returncode, found.stderr)
-        self.assertTrue(found.stdout.strip().lower().endswith('pf.ps1'),
+        self.assertTrue(found.stdout.strip().lower().endswith('sw.ps1'),
                         f'PowerShell did not take the .ps1 shim: {found.stdout.strip()!r}')
 
     def test_an_empty_argument_arrives_as_an_empty_argument(self):
         """An empty argument is an argument: the entry is in the argv, and it is empty. Windows
         PowerShell 5.1 renders one as nothing at all, so it is one of the shapes the shim does not
         leave to the host."""
-        proc = self.shim("pf keep '' tail")
+        proc = self.shim("sw keep '' tail")
 
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertEqual([['keep', '', 'tail']], self.runs(),
@@ -314,10 +314,10 @@ class _PfShimCases:
 
     def test_a_checkout_path_carrying_a_space_still_leaves_the_caller_its_own_streams(self):
         """The fixture one directory down, under a name carrying a space -- the checkout shape where
-        the shim's own `-X utf8 <pf.py>` prefix is whitespace-carrying too.
+        the shim's own `-X utf8 <sw.py>` prefix is whitespace-carrying too.
 
         That prefix is the shim's business, not an argument of the call, so an ordinary call (none of
-        the three shapes that force the built line) is still handed to `&` and `$x = pf ...` sees the
+        the three shapes that force the built line) is still handed to `&` and `$x = sw ...` sees the
         child. Counting the prefix would put every call of such a checkout on the built line, where
         the host's capture goes blind: the marker would land on the console and `$x` would come back
         empty. The host that decides this is Windows PowerShell 5.1 -- `pwsh` names its renderer and
@@ -328,11 +328,11 @@ class _PfShimCases:
         """
         fixture = self.dir / 'dir with space'
         fixture.mkdir()
-        shutil.copyfile(SHIM, fixture / 'pf.cmd')
-        shutil.copyfile(PS1, fixture / 'pf.ps1')
-        (fixture / 'pf.py').write_text(FAKE_PF_TICKET, encoding='utf-8')
+        shutil.copyfile(SHIM, fixture / 'sw.cmd')
+        shutil.copyfile(PS1, fixture / 'sw.ps1')
+        (fixture / 'sw.py').write_text(FAKE_SW_TICKET, encoding='utf-8')
 
-        proc = self.shim('$x = pf handoff --form zzz; "CAPTURED=[$x]"', shim_dir=fixture)
+        proc = self.shim('$x = sw handoff --form zzz; "CAPTURED=[$x]"', shim_dir=fixture)
 
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertIn('CAPTURED=[TICKET-LINE]', proc.stdout,
@@ -348,8 +348,8 @@ class _PfShimCases:
 
     def test_the_ps1_shim_runs_the_command_once_and_keeps_its_code(self):
         """A non-zero exit: the fallback interpreter must not run it again, and the exit code must not
-        change hands -- `pf.cmd`'s contract, kept by the shim PowerShell actually takes."""
-        proc = self.shim('pf issue top; exit $LASTEXITCODE', exit_code='3')
+        change hands -- `sw.cmd`'s contract, kept by the shim PowerShell actually takes."""
+        proc = self.shim('sw issue top; exit $LASTEXITCODE', exit_code='3')
 
         self.assertEqual(3, proc.returncode, proc.stderr)
         self.assertEqual([['issue', 'top']], self.runs())
@@ -360,7 +360,7 @@ class _PfShimCases:
         (self.dir / 'py.cmd').write_text(PY_STANDIN, encoding='utf-8')
         env = _child_env()
         env['FAKE_PYTHON'] = PYTHON
-        proc = self.shim('pf issue top; exit $LASTEXITCODE', exit_code='3', env=env,
+        proc = self.shim('sw issue top; exit $LASTEXITCODE', exit_code='3', env=env,
                          path=self.bare_path())
 
         self.assertEqual(3, proc.returncode, proc.stderr)
@@ -368,19 +368,19 @@ class _PfShimCases:
         handed = (self.dir / 'py-runs.txt').read_text(encoding='utf-8')
         self.assertIn('-3', handed, f'the whole command the shim handed the launcher: {handed!r}')
         self.assertIn('-X utf8', handed)
-        self.assertIn('pf.py', handed)
+        self.assertIn('sw.py', handed)
 
     def test_no_interpreter_on_path_says_so_and_runs_nothing(self):
         """No interpreter at all: the shim says so and stops with its own 127, and nothing runs."""
-        proc = self.shim('pf doctor; exit $LASTEXITCODE', path=self.bare_path())
+        proc = self.shim('sw doctor; exit $LASTEXITCODE', path=self.bare_path())
 
         self.assertEqual(127, proc.returncode, f'{proc.stdout}\n{proc.stderr}')
         self.assertEqual([], self.runs(), 'no interpreter was found, so nothing may run')
         self.assertIn('python', proc.stderr)
 
 
-@unittest.skipUnless(os.name == 'nt', 'the two shims in front of `pf` are the Windows ones')
-@unittest.skipUnless(PWSH, 'pwsh is the host a skill session runs `pf` in')
+@unittest.skipUnless(os.name == 'nt', 'the two shims in front of `sw` are the Windows ones')
+@unittest.skipUnless(PWSH, 'pwsh is the host a skill session runs `sw` in')
 class TestPfShimInPowerShell(_PfShimCases, unittest.TestCase):
     """The `.ps1` shim as `pwsh` takes it: the argv it was handed reaches the tool whole, once, with
     the command's exit code."""
@@ -388,7 +388,7 @@ class TestPfShimInPowerShell(_PfShimCases, unittest.TestCase):
     HOST = PWSH
 
 
-@unittest.skipUnless(os.name == 'nt', 'the two shims in front of `pf` are the Windows ones')
+@unittest.skipUnless(os.name == 'nt', 'the two shims in front of `sw` are the Windows ones')
 @unittest.skipUnless(WINDOWS_POWERSHELL, 'Windows PowerShell is the other host that takes the `.ps1`')
 class TestPfShimInWindowsPowerShell(_PfShimCases, unittest.TestCase):
     """The same cases on Windows PowerShell 5.1, whose own rendering of a native command's arguments is
@@ -406,7 +406,7 @@ class TestDoctorRoot(unittest.TestCase):
     UID = '11111111-2222-3333-4444-555555555555'
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-doctor-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-doctor-')
         self.addCleanup(tmp.cleanup)
         base = Path(tmp.name)
         self.main = base / 'main'
@@ -422,16 +422,16 @@ class TestDoctorRoot(unittest.TestCase):
         (ledger / 'nodes' / self.UID / 'spec.md').write_text('# spec\n', encoding='utf-8')
         # The merge driver is written the registered way (relative form): the only check left is
         # "is the root right".
-        git(self.main, 'config', 'merge.pf.driver', 'pf merge-ledger %O %A %B %P')
+        git(self.main, 'config', 'merge.superworker.driver', 'sw merge-ledger %O %A %B %P')
 
-        # `.pf/` is not in the repository: a worktree is a full checkout, but only of what was
+        # `.superworker/` is not in the repository: a worktree is a full checkout, but only of what was
         # committed -- so the worktree has no ledger, and walking up for a `.git` directory does not
         # find the main tree either (this worktree is a sibling directory).
         (self.main / 'README.md').write_text('# main\n', encoding='utf-8')
         git(self.main, 'add', 'README.md')
         git(self.main, 'commit', '-m', 'seed', '--no-gpg-sign')
         self.wt = base / 'wt'
-        git(self.main, 'worktree', 'add', str(self.wt), '-b', 'pf/wt')
+        git(self.main, 'worktree', 'add', str(self.wt), '-b', 'sw/wt')
 
     # ── helpers ──────────────────────────────────────────────────────────────
     def reported_root(self, proc):
@@ -440,45 +440,45 @@ class TestDoctorRoot(unittest.TestCase):
         return Path(line.split(': ', 1)[1].strip())
 
     def dag_root(self, cwd):
-        """The root in the absolute path `pf dag open` prints -- the root the forwarded tool really
+        """The root in the absolute path `sw dag open` prints -- the root the forwarded tool really
         knows.
 
-        `<root>/.pf/nodes/<id>/spec.md`, four levels up, is it.
+        `<root>/.superworker/nodes/<id>/spec.md`, four levels up, is it.
         """
-        proc = pf('dag', 'open', self.UID, cwd=cwd)
+        proc = sw('dag', 'open', self.UID, cwd=cwd)
         self.assertEqual(0, proc.returncode, proc.stderr)
         return Path(proc.stdout.strip()).parents[3]
 
     # ── cases ────────────────────────────────────────────────────────────────
     def test_doctor_and_the_tool_it_fronts_share_the_root_in_a_worktree(self):
-        """Inside a worktree: the root doctor reports is the root `pf dag` read the node by."""
+        """Inside a worktree: the root doctor reports is the root `sw dag` read the node by."""
         self.assertTrue(self.dag_root(self.wt).samefile(self.main),
-                        'pf dag did not go back to the main tree -- this case\'s premise does not hold')
-        doctor = pf('doctor', cwd=self.wt)
+                        'sw dag did not go back to the main tree -- this case\'s premise does not hold')
+        doctor = sw('doctor', cwd=self.wt)
         self.assertTrue(self.reported_root(doctor).samefile(self.main),
                         f'doctor reported a root that is not the main tree:\n{doctor.stdout}')
         self.assertTrue(self.reported_root(doctor).samefile(self.dag_root(self.wt)),
-                        'doctor and pf dag do not know the same root')
+                        'doctor and sw dag do not know the same root')
         self.assertEqual(0, doctor.returncode, doctor.stdout)
 
     def test_the_two_roots_agree_inside_the_project_too(self):
         """In the main tree: the two agree just the same (the go-back exception does not affect the
         ordinary path)."""
-        self.assertTrue(self.reported_root(pf('doctor', cwd=self.main)).samefile(
+        self.assertTrue(self.reported_root(sw('doctor', cwd=self.main)).samefile(
             self.dag_root(self.main)))
-        self.assertTrue(self.reported_root(pf('doctor', cwd=self.main)).samefile(self.main))
+        self.assertTrue(self.reported_root(sw('doctor', cwd=self.main)).samefile(self.main))
 
 
 class TestDoctorPlugins(unittest.TestCase):
     """`doctor`'s `plugins:` section: what the scan found, and what a declaration's problems cost.
 
-    `PF_PLUGINS_DIR` is pointed at a throwaway directory in every case, so what is asserted is the
+    `SUPERWORKER_PLUGINS_DIR` is pointed at a throwaway directory in every case, so what is asserted is the
     doctor's own reporting -- never which plugins this checkout ships. The project is a clean one
     (init markers plus the usage note), so the exit code is the plugins' alone.
     """
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-doctor-plugins-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-doctor-plugins-')
         self.addCleanup(tmp.cleanup)
         base = Path(tmp.name)
         self.project = base / 'project'
@@ -492,9 +492,9 @@ class TestDoctorPlugins(unittest.TestCase):
     # ── helpers ──────────────────────────────────────────────────────────────
     def doctor(self, plugins=None):
         env = _child_env()
-        env['PF_PLUGINS_DIR'] = str(self.plugins if plugins is None else plugins)
-        env['PF_HOME_DIR'] = str(self.home)
-        return run_argv([PF, 'doctor'], cwd=self.project, env=env, check=False)
+        env['SUPERWORKER_PLUGINS_DIR'] = str(self.plugins if plugins is None else plugins)
+        env['SUPERWORKER_HOME_DIR'] = str(self.home)
+        return run_argv([SW, 'doctor'], cwd=self.project, env=env, check=False)
 
     def add_plugin(self, name='auditor', declaration=None, impl=None):
         """One plugin folder under the temp plugins directory, with the skill its method names.
@@ -522,11 +522,11 @@ class TestDoctorPlugins(unittest.TestCase):
             write_skill(folder, FIXTURE_METHOD)
         return folder
 
-    def pf(self, *args):
+    def sw(self, *args):
         env = _child_env()
-        env['PF_PLUGINS_DIR'] = str(self.plugins)
-        env['PF_HOME_DIR'] = str(self.home)
-        return run_argv([PF, *args], cwd=self.project, env=env, check=False)
+        env['SUPERWORKER_PLUGINS_DIR'] = str(self.plugins)
+        env['SUPERWORKER_HOME_DIR'] = str(self.home)
+        return run_argv([SW, *args], cwd=self.project, env=env, check=False)
 
     # ── cases ────────────────────────────────────────────────────────────────
     def test_an_installed_plugin_is_listed_with_its_tags_and_methods(self):
@@ -567,7 +567,7 @@ class TestDoctorPlugins(unittest.TestCase):
     def test_a_declaration_that_claims_a_builtin_name_is_reported(self):
         """A declaration that claims a core setting's name is the merge's one silence: the built-in
         cell keeps working (a broken declaration may not redefine what a setting means), the declared
-        one is unreachable, and `pf doctor` -- the one door that sees both tables -- says so."""
+        one is unreachable, and `sw doctor` -- the one door that sees both tables -- says so."""
         self.add_plugin('thief', {
             'name': 'thief', 'timing': 'close', 'action': 'insert',
             'knobs': {'max_agents': {'kind': 'word', 'values': ['one', 'many'],
@@ -582,8 +582,8 @@ class TestDoctorPlugins(unittest.TestCase):
         self.assertIn("'max_agents'", proc.stdout, 'the problem names the knob that collided')
         self.assertIn("'thief'", proc.stdout, 'and the declaration that tried')
         # the built-in cell still wins: the setting is an integer, so a word is refused
-        self.assertEqual('3\n', self.pf('config', 'get', 'max_agents').stdout)
-        self.assertNotEqual(0, self.pf('config', 'set', 'max_agents', 'one').returncode,
+        self.assertEqual('3\n', self.sw('config', 'get', 'max_agents').stdout)
+        self.assertNotEqual(0, self.sw('config', 'set', 'max_agents', 'one').returncode,
                             'the declared word vocabulary reached the built-in setting')
 
     def test_a_declared_layers_cell_off_the_chain_is_reported(self):
@@ -603,10 +603,10 @@ class TestDoctorPlugins(unittest.TestCase):
         self.assertIn('audit_limit', proc.stdout)
         self.assertIn("'line'", proc.stdout, 'the problem names the layer nobody resolves')
         # the knob is still reachable from the whole chain: the value writes and reads back
-        self.assertEqual(0, self.pf('config', 'set', 'audit_limit', '5').returncode)
+        self.assertEqual(0, self.sw('config', 'set', 'audit_limit', '5').returncode)
 
     def test_a_broken_implementation_is_reported(self):
-        """`pf doctor` loads every installed `impl.py` once: a plugin whose code cannot even compile
+        """`sw doctor` loads every installed `impl.py` once: a plugin whose code cannot even compile
         has to be named on the doctor's list, not discovered at the next close."""
         clean = self.doctor()
         self.assertEqual(0, clean.returncode, clean.stdout)
@@ -630,7 +630,7 @@ class TestDoctorPlugins(unittest.TestCase):
             'knobs': {'audit_limit': {'kind': 'number'}},
             'readings': {'audit_minutes': {'source': 'ticket', 'when_knob': 'audit_limit'}},
             'metrics': {'audit_minutes': {'line': 'audit_limit', 'tag': 'audit:cardless',
-                                          'method': 'pf-no-such-skill', 'order': 0}},
+                                          'method': 'sw-no-such-skill', 'order': 0}},
         })
 
         proc = self.doctor()
@@ -638,7 +638,7 @@ class TestDoctorPlugins(unittest.TestCase):
         self.assertNotEqual(0, proc.returncode,
                             f'a method skill that is missing must reach the exit code:\n{proc.stdout}')
         self.assertIn("'cardless'", proc.stdout, 'the problem names the plugin')
-        self.assertIn("'pf-no-such-skill'", proc.stdout, 'and the method nobody has a skill for')
+        self.assertIn("'sw-no-such-skill'", proc.stdout, 'and the method nobody has a skill for')
 
     def test_an_implementation_that_raises_is_reported(self):
         """The doctor really calls each implementation once, against a stand-in project: a plugin
@@ -658,10 +658,10 @@ class TestPluginCommands(unittest.TestCase):
     """The words installed plugins contribute: listed by `--help`, routed by `main()`, and gone again
     when the folder or the declaration that carried them is.
 
-    `PF_PLUGINS_DIR` is pointed at a throwaway directory in every case, so what is measured is the
+    `SUPERWORKER_PLUGINS_DIR` is pointed at a throwaway directory in every case, so what is measured is the
     entry layer's own routing -- never which plugins this checkout happens to ship. The project is a
     clean one (init markers plus the usage note) and this machine's settings layer is a throwaway too,
-    so a healthy fixture's `pf doctor` has nothing but the plugins to report.
+    so a healthy fixture's `sw doctor` has nothing but the plugins to report.
 
     A plugin's command is answered by that folder's implementation, run as a script: the fixture below
     appends the argv it was handed to a file beside itself, which is how a case reads whether the word
@@ -669,16 +669,16 @@ class TestPluginCommands(unittest.TestCase):
     """
 
     #: The word the fixture contributes, and the line its declaration prints for it.
-    WORD = 'pf-fixture-cmd'
+    WORD = 'sw-fixture-cmd'
     LINE = 'the fixture word, which the declaration names'
 
     #: A word wider than the listing's word-column floor (30 columns), and the line beside it: the
     #: declaration may claim a word of any length, so the listing has to lay itself out around one.
-    LONG_WORD = 'pf-' + 'w' * 28
+    LONG_WORD = 'sw-' + 'w' * 28
     LONG_LINE = 'the long word, which the declaration names'
 
     #: and one wider than the listing itself, where no room is left beside the word column at all.
-    HUGE_WORD = 'pf-' + 'w' * 97
+    HUGE_WORD = 'sw-' + 'w' * 97
 
     #: A plugin implementation that records the argv it was handed. Its second entry (the timing door)
     #: answers "nothing this pass", which is what keeps it a legal declaration either way.
@@ -703,7 +703,7 @@ if __name__ == '__main__':
 '''
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-plugin-commands-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-plugin-commands-')
         self.addCleanup(tmp.cleanup)
         base = Path(tmp.name)
         self.project = base / 'project'
@@ -719,7 +719,7 @@ if __name__ == '__main__':
         """One plugin folder under the throwaway plugins directory; returns it.
 
         The default declaration carries no timing and no action: a plugin that contributes a word is a
-        legal declaration as it stands, which is the smallest shape `pf <word>` can be handed to.
+        legal declaration as it stands, which is the smallest shape `sw <word>` can be handed to.
         """
         folder = self.plugins / name
         folder.mkdir()
@@ -733,14 +733,14 @@ if __name__ == '__main__':
     def write_declaration(self, folder, decl):
         (folder / 'plugin.json').write_text(json.dumps(decl, ensure_ascii=False), encoding='utf-8')
 
-    def pf(self, *args):
+    def sw(self, *args):
         env = _child_env()
-        env['PF_PLUGINS_DIR'] = str(self.plugins)
-        env['PF_HOME_DIR'] = str(self.home)
-        return run_argv([PF, *[str(a) for a in args]], cwd=self.project, env=env, check=False)
+        env['SUPERWORKER_PLUGINS_DIR'] = str(self.plugins)
+        env['SUPERWORKER_HOME_DIR'] = str(self.home)
+        return run_argv([SW, *[str(a) for a in args]], cwd=self.project, env=env, check=False)
 
     def doctor(self):
-        return self.pf('doctor')
+        return self.sw('doctor')
 
     def ran(self, name='probe'):
         """The argv lines the fixture recorded, in order (`[]` when its implementation never ran)."""
@@ -749,19 +749,19 @@ if __name__ == '__main__':
 
     # ── cases ────────────────────────────────────────────────────────────────
     def test_a_word_a_plugin_contributes_is_listed_and_runs(self):
-        """A plugin that carries one command and nothing else: `pf --help` prints the word with the
-        declaration's own line, `pf <word> <rest>` reaches the folder's implementation with the word
-        and the rest, and `pf doctor` -- which has nothing else to report -- says it is installed and
+        """A plugin that carries one command and nothing else: `sw --help` prints the word with the
+        declaration's own line, `sw <word> <rest>` reaches the folder's implementation with the word
+        and the rest, and `sw doctor` -- which has nothing else to report -- says it is installed and
         lists the word it brings.
         """
         self.add_plugin('probe', {self.WORD: {'summary': self.LINE}})
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
         self.assertIn(self.WORD, help_text.stdout, 'the help does not list the word')
         self.assertIn(self.LINE, help_text.stdout, 'the help does not print the declaration\'s line')
 
-        ran = self.pf(self.WORD, 'alpha', 'beta')
+        ran = self.sw(self.WORD, 'alpha', 'beta')
         self.assertEqual(0, ran.returncode, ran.stderr)
         self.assertIn(f'the fixture answered: {self.WORD} alpha beta', ran.stdout)
         self.assertEqual([f'{self.WORD} alpha beta'], self.ran())
@@ -783,7 +783,7 @@ if __name__ == '__main__':
         """
         self.add_plugin('probe', {self.LONG_WORD: {'summary': self.LONG_LINE}})
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
         lines = help_text.stdout.splitlines()
         row = next((line for line in lines if line[12:].startswith(self.LONG_WORD)), None)
@@ -793,8 +793,8 @@ if __name__ == '__main__':
         self.assertIn(self.LONG_LINE, row, 'the declaration\'s line is not beside the word')
         token = row[12:].split()[0]
         self.assertEqual(self.LONG_WORD, token, 'the word column does not read back as the word')
-        self.assertEqual(0, self.pf(token, 'x').returncode,
-                         'the token the listing reads out is not a word `pf` routes')
+        self.assertEqual(0, self.sw(token, 'x').returncode,
+                         'the token the listing reads out is not a word `sw` routes')
 
         # the plugin section's title follows the same column: it stays the rest of the title, rather
         # than standing in the word column as a word of its own
@@ -809,19 +809,19 @@ if __name__ == '__main__':
         self.write_declaration(self.plugins / 'probe', {
             'name': 'probe', 'summary': 'probe, a fixture',
             'commands': {self.HUGE_WORD: {'summary': self.LONG_LINE}}})
-        huge = self.pf('--help')
+        huge = self.sw('--help')
         self.assertEqual(0, huge.returncode, huge.stderr)
         huge_token = next(line[12:].split()[0] for line in huge.stdout.splitlines()
                           if line[12:].startswith(self.HUGE_WORD))
         self.assertEqual(self.HUGE_WORD, huge_token, 'a very wide word is read back glued to its line')
-        self.assertEqual(0, self.pf(huge_token, 'x').returncode)
+        self.assertEqual(0, self.sw(huge_token, 'x').returncode)
 
     def test_a_word_that_does_not_travel_is_handed_the_rest_of_the_line(self):
         """The declaration decides whether its own word goes along in the argv: with the cell off, the
         implementation is handed the rest of the line and nothing else."""
         self.add_plugin('probe', {self.WORD: {'summary': self.LINE, 'keep_name': False}})
 
-        ran = self.pf(self.WORD, 'alpha', 'beta')
+        ran = self.sw(self.WORD, 'alpha', 'beta')
 
         self.assertEqual(0, ran.returncode, ran.stderr)
         self.assertEqual(['alpha beta'], self.ran())
@@ -831,31 +831,31 @@ if __name__ == '__main__':
         wrongly, the word is out of both the listing and the router, and typing it is the refusal a
         word nobody contributed gets.
 
-        `pf --help` still answers and exits 0, and `pf doctor` -- which still answers -- names the
+        `sw --help` still answers and exits 0, and `sw doctor` -- which still answers -- names the
         plugin and what is wrong with it.
         """
         folder = self.add_plugin('probe', {self.WORD: {'summary': self.LINE}})
-        self.assertEqual(0, self.pf('--help').returncode, 'the fixture does not start healthy')
+        self.assertEqual(0, self.sw('--help').returncode, 'the fixture does not start healthy')
 
         bad = {'name': 'probe', 'summary': 'a fixture', 'timing': 'lunch',
                'commands': {self.WORD: {'summary': self.LINE}}}
         self.write_declaration(folder, bad)
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
         self.assertNotIn(self.WORD, help_text.stdout)
-        gone = self.pf(self.WORD)
+        gone = self.sw(self.WORD)
         self.assertEqual(2, gone.returncode, 'a word with a broken declaration was routed')
         self.assertIn('does not recognize', gone.stderr)
         doctor = self.doctor()
-        self.assertIn('pf command: ', doctor.stdout, 'the doctor stopped answering')
+        self.assertIn('sw command: ', doctor.stdout, 'the doctor stopped answering')
         self.assertIn('project root: ', doctor.stdout, 'the doctor stopped answering')
         self.assertIn("plugin 'probe'", doctor.stdout, 'the doctor did not name the plugin')
         self.assertIn("timing 'lunch'", doctor.stdout, 'the doctor did not name what is wrong')
 
     def test_a_word_whose_implementation_is_gone_keeps_its_place_and_fails_loudly(self):
         """The declaration is sound here and the code is not: the word is the declaration's, and the
-        listing reads declarations only, so `pf --help` still prints it and the router still takes it.
+        listing reads declarations only, so `sw --help` still prints it and the router still takes it.
 
         Typing that word is where the missing file is found out: a non-zero exit, one sentence on
         stderr naming the plugin and the file, and the fixture ran nothing.
@@ -863,12 +863,12 @@ if __name__ == '__main__':
         folder = self.add_plugin('probe', {self.WORD: {'summary': self.LINE}})
         (folder / 'impl.py').unlink()
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
         self.assertIn(self.WORD, help_text.stdout, 'a sound declaration lost its word with its code')
         self.assertIn(self.LINE, help_text.stdout)
 
-        typed = self.pf(self.WORD)
+        typed = self.sw(self.WORD)
         self.assertNotEqual(0, typed.returncode, 'a word whose code is gone answered as a command')
         self.assertIn("plugin 'probe'", typed.stderr, 'the failure did not name the plugin')
         self.assertIn('impl.py', typed.stderr, 'the failure did not name the file that is gone')
@@ -882,17 +882,17 @@ if __name__ == '__main__':
         """Code that cannot even be loaded is asked for when its word is typed, so it is one sentence
         naming the plugin and the error rather than a word that quietly goes.
 
-        `pf --help` still answers, exits 0 and prints the word; `pf doctor` still names the plugin and
+        `sw --help` still answers, exits 0 and prints the word; `sw doctor` still names the plugin and
         says the code is what broke; nothing of the fixture ran.
         """
         self.add_plugin('syntax', {self.WORD: {'summary': self.LINE}},
                         impl='def offer(ctx)\n    return None\n')
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
         self.assertIn(self.WORD, help_text.stdout, 'unloadable code took the word off the listing')
 
-        typed = self.pf(self.WORD)
+        typed = self.sw(self.WORD)
         self.assertNotEqual(0, typed.returncode, 'a word with unloadable code answered as a command')
         self.assertIn("plugin 'syntax'", typed.stderr, 'the failure did not name the plugin')
         self.assertIn('failed to load', typed.stderr, 'the failure did not say the code is what broke')
@@ -907,14 +907,14 @@ if __name__ == '__main__':
         listed and routed, typing it comes back with the code the folder chose, and stderr says which
         folder stopped.
         """
-        self.add_plugin('stop', {'pf-fixture-stop': {'summary': 'the fixture line'}},
+        self.add_plugin('stop', {'sw-fixture-stop': {'summary': 'the fixture line'}},
                         impl='import sys\n\nsys.exit(9)\n')
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
-        self.assertIn('pf-fixture-stop', help_text.stdout, 'a stopping folder lost its word')
+        self.assertIn('sw-fixture-stop', help_text.stdout, 'a stopping folder lost its word')
 
-        stopped = self.pf('pf-fixture-stop')
+        stopped = self.sw('sw-fixture-stop')
         self.assertEqual(9, stopped.returncode, 'the code the folder chose did not come back')
         self.assertIn("plugin 'stop'", stopped.stderr, 'the stop did not name the plugin')
         self.assertIn('exit code 9', stopped.stderr)
@@ -924,20 +924,20 @@ if __name__ == '__main__':
         it is gone the help is byte-for-byte the one this checkout prints with no plugin at all -- and
         the word is out of the router as well.
         """
-        empty = self.pf('--help')
+        empty = self.sw('--help')
         self.assertEqual(0, empty.returncode, empty.stderr)
         folder = self.add_plugin('probe', {self.WORD: {'summary': self.LINE}})
-        with_word = self.pf('--help').stdout
+        with_word = self.sw('--help').stdout
         self.assertIn(self.WORD, with_word, 'the fixture does not start with its word listed')
 
         shutil.rmtree(folder)
 
-        after = self.pf('--help')
+        after = self.sw('--help')
         self.assertEqual(0, after.returncode, after.stderr)
         self.assertNotIn(self.WORD, after.stdout)
         self.assertEqual(empty.stdout, after.stdout,
                          'the help is not the one it printed with no plugin installed')
-        self.assertEqual(2, self.pf(self.WORD).returncode)
+        self.assertEqual(2, self.sw(self.WORD).returncode)
         self.assertEqual([], self.ran())
 
     def test_a_word_the_core_already_answers_is_reported_and_the_core_keeps_it(self):
@@ -945,14 +945,14 @@ if __name__ == '__main__':
         nothing -- its words are out of the listing, the core's rows keep routing, and the plugin's
         implementation never runs.
 
-        `pf doctor` is the one door holding both tables, so it is where the declaration that lost is
+        `sw doctor` is the one door holding both tables, so it is where the declaration that lost is
         named, word by word.
         """
         self.add_plugin('clash', {'next': {'summary': 'the clash would like this one'},
                                   'doctor': {'summary': 'and this one'},
                                   'cycle': {'summary': 'this group too'}})
 
-        help_text = self.pf('--help')
+        help_text = self.sw('--help')
         self.assertEqual(0, help_text.returncode, help_text.stderr)
         for line in ('the clash would like this one', 'and this one', 'this group too'):
             self.assertNotIn(line, help_text.stdout, 'a losing declaration reached the help')
@@ -963,9 +963,9 @@ if __name__ == '__main__':
                           doctor.stdout, f'the collision on {word!r} was not reported')
 
         # the routing still goes to the core's own row, on both tables and on a self verb
-        self.assertIn('pf command: ', self.doctor().stdout)
-        self.assertIn('no_cycle', self.pf('next').stdout)
-        self.assertEqual(0, self.pf('cycle', '--help').returncode)
+        self.assertIn('sw command: ', self.doctor().stdout)
+        self.assertIn('no_cycle', self.sw('next').stdout)
+        self.assertEqual(0, self.sw('cycle', '--help').returncode)
         self.assertEqual([], self.ran('clash'), 'the clash answered a word the core owns')
 
 
@@ -973,7 +973,7 @@ class TestCommandList(unittest.TestCase):
     """The command list has one source: whatever `<subcommand> --help` prints is what `help`
     prints.
 
-    The words `pf` itself answers are the static tables; the words an installed plugin contributes are
+    The words `sw` itself answers are the static tables; the words an installed plugin contributes are
     merged in behind them by the entry's one `_routing()`. Both readers -- the listing and the router
     -- take the rows from there, and the two guards below are what says so: a row injected into that
     table has to show up in the help text and be routed by `main()`, which a second copy of the list
@@ -982,23 +982,23 @@ class TestCommandList(unittest.TestCase):
     """
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix='pf-help-')
+        tmp = tempfile.TemporaryDirectory(prefix='sw-help-')
         self.addCleanup(tmp.cleanup)
         self.dir = Path(tmp.name)
 
     @staticmethod
     def entry():
         import importlib.util
-        spec = importlib.util.spec_from_file_location('pf_bin_entry', PF)
+        spec = importlib.util.spec_from_file_location('sw_bin_entry', SW)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
 
     @requires_plugin('issue')
     def test_issue_help_prints_the_parser_help(self):
-        """The word a folder contributes answers `--help` with the folder's own tool's text: `pf
+        """The word a folder contributes answers `--help` with the folder's own tool's text: `sw
         <word> --help` is that tool's parser talking, which is what a plugin's word means."""
-        verb, flag = pf('issue', 'help', cwd=self.dir), pf('issue', '--help', cwd=self.dir)
+        verb, flag = sw('issue', 'help', cwd=self.dir), sw('issue', '--help', cwd=self.dir)
         self.assertEqual(0, verb.returncode, verb.stderr)
         self.assertEqual(0, flag.returncode, flag.stderr)
         self.assertEqual(flag.stdout, verb.stdout)
@@ -1010,13 +1010,13 @@ class TestCommandList(unittest.TestCase):
         entry = self.entry()
         table = entry._routing()
 
-        text = pf('--help', cwd=self.dir).stdout
+        text = sw('--help', cwd=self.dir).stdout
         routed = [row[0] for row in entry.SELF_VERBS]
         routed += [row[0] for row in table['verbs']]
         routed += [row[0] for row in table['plugins']]
         routed += [row[0] for row in table['groups']]
         for name in routed:
-            self.assertIn(name, text, f'{name} is in the routing table, but `pf --help` omits it')
+            self.assertIn(name, text, f'{name} is in the routing table, but `sw --help` omits it')
 
     def test_the_help_and_the_router_are_grown_from_one_table(self):
         """The two readers walk one table: a row injected into `_routing()` is printed by `usage()`
@@ -1027,7 +1027,7 @@ class TestCommandList(unittest.TestCase):
         """
         entry = self.entry()
         built = entry._routing
-        row = ('pf-injected-word', str(self.dir / 'nobody-shipped-this.py'), True,
+        row = ('sw-injected-word', str(self.dir / 'nobody-shipped-this.py'), True,
                'the injected row nobody shipped')
         entry._routing = lambda: {**built(), 'plugins': (*built()['plugins'], row)}
         routed = []
@@ -1039,14 +1039,14 @@ class TestCommandList(unittest.TestCase):
             self.assertEqual([(Path(row[1]).parent.name, row[1], row[0], ('x',))], routed,
                              'the router did not take the word from the same table')
             with contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(2, entry.main(['pf-nobody-contributed-this']),
+                self.assertEqual(2, entry.main(['sw-nobody-contributed-this']),
                                  'a word that is not in the table was routed anyway')
         finally:
             entry._routing = built
 
     @staticmethod
     def printed_words(entry, text):
-        """The words `pf --help` prints, read off the listing's own layout.
+        """The words `sw --help` prints, read off the listing's own layout.
 
         A row stands at the listing's word margin; the shape note above the listing and the closing
         lines below it start at the left, and a wrapped sense -- or the plugins' title standing over
@@ -1066,7 +1066,7 @@ class TestCommandList(unittest.TestCase):
         return words
 
     def test_every_word_the_listing_prints_is_a_word_the_router_takes(self):
-        """The guard above, read the other way: the words `pf --help` prints are words `main()` routes.
+        """The guard above, read the other way: the words `sw --help` prints are words `main()` routes.
 
         Both readers walk one table, so a word printed beside it -- a listing grown from a second
         source, a row glued to its sense and read back as one token -- is a word the router refuses;
@@ -1076,7 +1076,7 @@ class TestCommandList(unittest.TestCase):
         """
         entry = self.entry()
         built = entry._routing
-        row = ('pf-injected-word', str(self.dir / 'nobody-shipped-this.py'), True,
+        row = ('sw-injected-word', str(self.dir / 'nobody-shipped-this.py'), True,
                'the injected row nobody shipped')
         entry._routing = lambda: {**built(), 'plugins': (*built()['plugins'], row)}
         taken = []
@@ -1094,7 +1094,7 @@ class TestCommandList(unittest.TestCase):
             for word in printed:
                 with contextlib.redirect_stderr(io.StringIO()):
                     self.assertNotEqual(2, entry.main([word]),
-                                        f'`pf --help` prints `{word}`, and the router refuses it')
+                                        f'`sw --help` prints `{word}`, and the router refuses it')
             self.assertEqual(len(printed), len(taken),
                              'a word the listing prints never reached a door')
             self.assertEqual(sorted(rows), sorted(printed),

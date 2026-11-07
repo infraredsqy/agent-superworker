@@ -10,10 +10,10 @@ plugin's knobs arrive as data, and the merge is what makes one name reachable fr
 
 **Narrow beats wide.** A value lives on one chain, and the first layer that states it wins:
 
-    node      `<project>/.pf/nodes/<id>/config.json`   one node's own run
+    node      `<project>/.superworker/nodes/<id>/config.json`   one node's own run
     cycle     the cycle record's `policies`            one line of work
-    project   `<project>/.pf/config.json`              travels with the project
-    global    `~/.pf/config.json`                      travels with this machine
+    project   `<project>/.superworker/config.json`              travels with the project
+    global    `~/.superworker/config.json`                      travels with this machine
     factory   `BUILTIN` / the declaration's `default`  where it lands when nobody says anything
 
 The same name on several layers at once is legal and resolves deterministically. What every reading
@@ -222,7 +222,7 @@ def shadowed() -> list:
     `specs()` keeps the built-in cell when a declaration claims the same name -- the safe precedence,
     because a broken declaration must never change what a core setting means -- but the declaration
     is then unreachable and its own summary misleading. Nothing else in the tree sees both tables, so
-    this door does: `pf doctor` prints these as problems. One sentence per collision, naming both
+    this door does: `sw doctor` prints these as problems. One sentence per collision, naming both
     sides, and the runtime goes on as before.
     """
     out = []
@@ -272,22 +272,22 @@ def source_label(source: str, cycle=None, node=None) -> str:
 # ── the layers ──────────────────────────────────────────────────────────────
 
 def global_config_path() -> Path:
-    """This machine's layer: `~/.pf/config.json` (the same one `pf config set --global` writes).
+    """This machine's layer: `~/.superworker/config.json` (the same one `sw config set --global` writes).
 
     Where it lands is the ledger contract's business (`shared/ledger.py`'s `home_config_path`, where
-    the `PF_HOME_DIR` sandbox switch is read too), so the reading side and the writing side resolve
+    the `SUPERWORKER_HOME_DIR` sandbox switch is read too), so the reading side and the writing side resolve
     the same "home".
     """
     return _ledger().home_config_path()
 
 
 def project_config_path(project: str | None = None) -> Path:
-    """This project's layer: `<project>/.pf/config.json`."""
+    """This project's layer: `<project>/.superworker/config.json`."""
     return _ledger().config_path_of(ledger_dir_for(project))
 
 
 def node_config_path(project: str | None = None, node: str | None = None) -> Path:
-    """One node's layer: `<project>/.pf/nodes/<id>/config.json`."""
+    """One node's layer: `<project>/.superworker/nodes/<id>/config.json`."""
     return nodes_dir_for(project) / str(node) / _ledger().CONFIG_NAME
 
 
@@ -450,7 +450,7 @@ def write_layer(layer: str, project: str | None = None, key: str | None = None, 
 
     A layer file is one whole read-modify-write, held under the project's ledger lock: two lines
     writing different knobs at once would otherwise lose one of the two. The lock is also the gate --
-    a `.pf/` this tool never init-ed cannot be written through it. The global layer belongs to this
+    a `.superworker/` this tool never init-ed cannot be written through it. The global layer belongs to this
     machine rather than to any project, so there is no shared lock to take and `_atomic_write`'s
     atomic replace is the whole of it. A key this tool does not own is left exactly as it is.
 
@@ -475,5 +475,5 @@ def write_layer(layer: str, project: str | None = None, key: str | None = None, 
 
 def write_node_layer(project: str | None = None, node: str | None = None, key: str | None = None,
                      value=None) -> None:
-    """One node's own layer: `<project>/.pf/nodes/<id>/config.json` (the node layer of the chain)."""
+    """One node's own layer: `<project>/.superworker/nodes/<id>/config.json` (the node layer of the chain)."""
     write_layer('node', project, key, value, node=node)

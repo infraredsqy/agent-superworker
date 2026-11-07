@@ -42,7 +42,7 @@ def _shipped_ps1():
     """Every `.ps1` under the repo root that the tree actually ships.
 
     A dot-directory is never part of what ships -- `.git` holds the repository, and `.work/` /
-    `.pf/` hold checkouts and ledgers made by running things. Without that cut, one checkout's scan
+    `.superworker/` hold checkouts and ledgers made by running things. Without that cut, one checkout's scan
     would reach into every sibling worktree beside it.
     """
     return sorted(path for path in ROOT.rglob('*.ps1')

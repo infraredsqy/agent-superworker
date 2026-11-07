@@ -2,9 +2,9 @@
 carrying a real-git proof.
 
   * fork wants a clean main tree (no forking inside the dirty window in the middle of another
-    line's close-out), and a taken short id (either the worktree directory or the `pf/<short id>`
+    line's close-out), and a taken short id (either the worktree directory or the `sw/<short id>`
     branch still around) is refused; a successful fork lands node / branch / head / at in
-    `.pf/meta/FORK-<short id>.json`.
+    `.superworker/meta/FORK-<short id>.json`.
   * the close-out opens: for a node with a FORK record on disk, an unclean worktree or branch is
     refused loudly and nothing is written; only once both are clean does it pass, and the same
     beat drops the record. A node with no record is not even asked about git -- a non-parallel
@@ -44,24 +44,24 @@ class TestForkWorktree(unittest.TestCase):
         self.repo = Path(tmp.name) / 'main'
         self.repo.mkdir(parents=True)
         self.short = NODE[:8]
-        self.record = self.repo / '.pf' / 'meta' / f'FORK-{self.short}.json'
-        self.wt = self.repo / '.pf' / 'worktrees' / self.short
+        self.record = self.repo / '.superworker' / 'meta' / f'FORK-{self.short}.json'
+        self.wt = self.repo / '.superworker' / 'worktrees' / self.short
         git(self.repo, 'init', '-b', 'main')
         # init's two marker files: without them, every command that writes refuses.
-        pf = init_markers(self.repo)
-        (pf / 'signals' / 'cyc').mkdir(parents=True)
-        (pf / 'state.json').write_text(json.dumps(
+        sw = init_markers(self.repo)
+        (sw / 'signals' / 'cyc').mkdir(parents=True)
+        (sw / 'state.json').write_text(json.dumps(
             {'cycles': [{'id': 'cyc', 'title': 't', 'status': 'active', 'tags': ['coding'],
                          'holding': [{'id': NODE, 'since': '2026-10-01T00:00:00Z'}],
                          'path': []}]}, indent=2), encoding='utf-8')
-        (pf / 'ideas.json').write_text(json.dumps(
+        (sw / 'ideas.json').write_text(json.dumps(
             {'nodes': {NODE: {'title': 'node', 'status': 'shelved', 'mode': 'auto',
                               'dependencies': []}}}, indent=2), encoding='utf-8')
-        (pf / 'signals' / 'cyc' / f'{NODE}.json').write_text(json.dumps(
+        (sw / 'signals' / 'cyc' / f'{NODE}.json').write_text(json.dumps(
             {'cycle': 'cyc', 'node': NODE, 'status': 'completed', 'summary': 'done',
              'outputs': {}, 'timestamp': '2026-10-01T00:00:00Z'}, indent=2), encoding='utf-8')
-        # This repository is the "committed kind": `.pf/` goes into it too, and only
-        # `.pf/.gitignore` keeps meta/ out.
+        # This repository is the "committed kind": `.superworker/` goes into it too, and only
+        # `.superworker/.gitignore` keeps meta/ out.
         git(self.repo, 'add', '-A')
         git(self.repo, 'commit', '-m', 'seed', '--no-gpg-sign')
         self.head = git(self.repo, 'rev-parse', 'HEAD').stdout.strip()
@@ -70,11 +70,11 @@ class TestForkWorktree(unittest.TestCase):
         return run_argv([STATE_MANAGE, *args], cwd=self.repo, check=False)
 
     def _cycle(self):
-        return json.loads((self.repo / '.pf' / 'state.json').read_text(encoding='utf-8'))['cycles'][0]
+        return json.loads((self.repo / '.superworker' / 'state.json').read_text(encoding='utf-8'))['cycles'][0]
 
     def test_a_dirty_main_tree_refuses_the_fork(self):
         """A dirty main tree may be another line closing out: fork must refuse and leave nothing."""
-        (self.repo / '.pf' / 'state.json').write_text('dirty', encoding='utf-8')
+        (self.repo / '.superworker' / 'state.json').write_text('dirty', encoding='utf-8')
 
         proc = self._state_manage('fork-worktree', NODE)
 
@@ -87,7 +87,7 @@ class TestForkWorktree(unittest.TestCase):
         proc = self._state_manage('fork-worktree', NODE)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(self.wt.is_dir())
-        self.assertIn(f'pf/{self.short}', git(self.repo, 'branch', '--list', f'pf/{self.short}').stdout)
+        self.assertIn(f'sw/{self.short}', git(self.repo, 'branch', '--list', f'sw/{self.short}').stdout)
         rec = json.loads(self.record.read_text(encoding='utf-8'))
         self.assertEqual(NODE, rec['node'])
         self.assertEqual('main', rec['branch'], 'the record must carry the branch forked from')
@@ -99,7 +99,7 @@ class TestForkWorktree(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('the merge-back is unfinished', proc.stderr,
                       'the refusal must name the unfinished merge-back')
-        self.assertIn(f'pf/{self.short}', proc.stderr, 'the refusal must name what is still there')
+        self.assertIn(f'sw/{self.short}', proc.stderr, 'the refusal must name what is still there')
         self.assertEqual([NODE], [h['id'] for h in self._cycle()['holding']],
                          'the refusal must not have settled anything')
         self.assertTrue(self.record.exists(), 'the gate refused: the record must stay')
@@ -111,15 +111,15 @@ class TestForkWorktree(unittest.TestCase):
         self.assertIn('already exists', proc.stderr)
 
         # Only the worktree is dropped, the branch stays: the second occupying face must name it too.
-        git(self.repo, 'worktree', 'remove', f'.pf/worktrees/{self.short}')
+        git(self.repo, 'worktree', 'remove', f'.superworker/worktrees/{self.short}')
         proc = self._state_manage('fork-worktree', NODE)
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn(f'pf/{self.short}', proc.stderr)
+        self.assertIn(f'sw/{self.short}', proc.stderr)
 
     def test_a_close_after_the_cleanup_passes_and_drops_the_record(self):
         self.assertEqual(0, self._state_manage('fork-worktree', NODE).returncode)
-        git(self.repo, 'worktree', 'remove', f'.pf/worktrees/{self.short}')
-        git(self.repo, 'branch', '-D', f'pf/{self.short}')
+        git(self.repo, 'worktree', 'remove', f'.superworker/worktrees/{self.short}')
+        git(self.repo, 'branch', '-D', f'sw/{self.short}')
 
         proc = self._state_manage('next', '--after', NODE)
 

@@ -23,7 +23,7 @@ def _loader():
     """`tools/shared/loader.py`: the one loader, for the modules this tree keeps outside `shared/`."""
     global _LOADER
     if _LOADER is None:
-        spec = importlib.util.spec_from_file_location('pf_shared_loader', SHARED / 'loader.py')
+        spec = importlib.util.spec_from_file_location('sw_shared_loader', SHARED / 'loader.py')
         _LOADER = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(_LOADER)
     return _LOADER
@@ -80,7 +80,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument('--functions', nargs='*', default=None,
                    help='Affected function/class names')
     p.add_argument('--plan-path', default=None,
-                   help='Path to detailed design spec file (convention: .pf/issues/specs/<id>.md)')
+                   help='Path to detailed design spec file (convention: .superworker/issues/specs/<id>.md)')
     p.set_defaults(func=_COMMANDS.cmd_add)
 
     # list

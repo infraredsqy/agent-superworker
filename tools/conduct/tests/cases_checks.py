@@ -20,9 +20,9 @@ What this file pins, in the order the criteria are stated:
     silent, and a skill folder whose method nothing names is a problem in the other direction;
   * an implementation that raises at its door, or that answers with a command-shaped list in a key
     the core reads, is named -- and the stand-in project starts no child process;
-  * and the pipeline's route never asks any of it: the two callers are this suite and `pf doctor`.
+  * and the pipeline's route never asks any of it: the two callers are this suite and `sw doctor`.
 
-Every case builds its own plugins directory (`PF_PLUGINS_DIR`), so nothing here depends on the
+Every case builds its own plugins directory (`SUPERWORKER_PLUGINS_DIR`), so nothing here depends on the
 folders this checkout ships; a case whose subject IS a shipped folder skips itself when it is gone.
 """
 
@@ -45,7 +45,7 @@ __all__ = ['TestTheValidator']
 #: The method name every fixture's skill is written under. A case that needs a method with a skill asks
 #: the fixture for one instead of reading a name off the shipped tree: the skill lives in the plugin
 #: folder beside the declaration, so the fixture writes both.
-CARDED = 'pf-skill-fixture'
+CARDED = 'sw-skill-fixture'
 
 #: A minimal, valid declaration: one metric, one line, one tag. A case changes the one cell it is
 #: about, so the case's subject is the only thing that differs between a green and a red run.
@@ -162,7 +162,7 @@ class TestTheValidator(Base):
 
         Half of it is not a smaller declaration -- it names a thing nothing ever serves -- so the
         validator names the half that is missing rather than taking it for "no timing at all". This is
-        the reading of a declaration that brings `pf` a word of its own: it is asked at no moment of the
+        the reading of a declaration that brings `sw` a word of its own: it is asked at no moment of the
         pipeline, so stating neither half is legal, and stating one half alone is what this names. A
         declaration that brings no word keeps occupying the cell it was written for (the case below).
         """
@@ -174,7 +174,7 @@ class TestTheValidator(Base):
         self.assertIn('timing and action travel together', '\n'.join(missing_timing))
 
     def test_a_declaration_that_brings_no_word_still_occupies_a_cell(self):
-        """Only a declaration that brings `pf` a word of its own is spared the cell.
+        """Only a declaration that brings `sw` a word of its own is spared the cell.
 
         With no word to bring it is asked at a moment of the pipeline, so stating neither half is the
         two problems it always was: the three shapes a declaration can have without a word -- knobs
@@ -194,7 +194,7 @@ class TestTheValidator(Base):
 
     # ── (a3) the command face: a word, a line, whether it travels ───────────
     def test_a_command_only_plugin_occupies_no_cell_and_is_legal(self):
-        """A declaration may carry words for `pf` instead of a timing: it is asked at no moment of the
+        """A declaration may carry words for `sw` instead of a timing: it is asked at no moment of the
         pipeline, so there is no cell to serve, and the validator has nothing to say about it.
         """
         problems = self.one(timing=None, action=None,
@@ -204,7 +204,7 @@ class TestTheValidator(Base):
 
     def test_a_command_cell_that_cannot_become_one_names_the_plugin(self):
         """Four ways a declared command is not a command, each one named: the cell is not an object,
-        the key is not a word `pf` could be handed, there is no line for the help to print, and the
+        the key is not a word `sw` could be handed, there is no line for the help to print, and the
         `keep_name` cell is not the true/false it has to be.
         """
         problems = self.one(timing=None, action=None, commands={
@@ -222,7 +222,7 @@ class TestTheValidator(Base):
         self.assertIn("command 'loud' takes keep_name as true or false", text)
 
     def test_a_word_pf_could_never_be_handed_is_not_a_command(self):
-        """The word's shape is the one `pf` matches its first argv against: one token, and not an
+        """The word's shape is the one `sw` matches its first argv against: one token, and not an
         option. A well-shaped cell passes either way -- whether the word travels is the declaration's
         own cell -- while a blank inside a word and a word opening with a dash are each named.
         """
@@ -268,8 +268,8 @@ class TestTheValidator(Base):
         """
         root = self.plugins()
         method = CARDED
-        write_plugin(root, 'one', declaration('pf-one', name='one'), QUIET_IMPL)
-        write_plugin(root, 'two', declaration('pf-two', name='two'), QUIET_IMPL)
+        write_plugin(root, 'one', declaration('sw-one', name='one'), QUIET_IMPL)
+        write_plugin(root, 'two', declaration('sw-two', name='two'), QUIET_IMPL)
         write_skill(root / 'one', method)
         write_skill(root / 'two', method)
 
@@ -285,11 +285,11 @@ class TestTheValidator(Base):
         """A method whose skill no plugin folder carries: the generated node would point a session at
         nothing, so the validator says which method and which plugin.
         """
-        problems = self.one(method='pf-no-such-skill', skill=False)
+        problems = self.one(method='sw-no-such-skill', skill=False)
 
         text = '\n'.join(problems)
         self.assertIn("plugin 'probe'", text)
-        self.assertIn("method 'pf-no-such-skill' has no skill", text)
+        self.assertIn("method 'sw-no-such-skill' has no skill", text)
 
     def test_a_method_that_has_a_card_is_silent(self):
         """The other half: a method the folder beside it carries a skill for is no problem at all."""
@@ -297,12 +297,12 @@ class TestTheValidator(Base):
 
     def test_a_skill_no_declaration_names_is_the_plugins_own(self):
         """The inventory direction: a plugin's folders are what it ships, so a skill no metric names is
-        a skill the user invokes -- `pf doctor` lists it with the plugin that carries it, and the
+        a skill the user invokes -- `sw doctor` lists it with the plugin that carries it, and the
         validator says nothing about it.
         """
         root = self.plugins()
         self.assertEqual([], self.one())
-        write_skill(root / 'probe', 'pf-extra-skill')
+        write_skill(root / 'probe', 'sw-extra-skill')
 
         self.assertEqual([], pipeline.registry().verify())
 

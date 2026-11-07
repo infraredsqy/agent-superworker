@@ -17,7 +17,7 @@ pass, and the pipeline carries on. `sys.exit()` is the same failure written diff
 may not end the process -- so `SystemExit` is caught here too, which is what the validator's live
 call (`plugin_registry._live_call_problems`) already asks of every door; `KeyboardInterrupt` is
 not caught, because Ctrl-C stays the human's. Most of what breaks a plugin is deterministic, and
-the doctor (`pf doctor`) is where it is reported -- the same split as everywhere else in this tree:
+the doctor (`sw doctor`) is where it is reported -- the same split as everywhere else in this tree:
 the write side is loud about what it can prove at the moment it happens, and the runtime never
 guesses.
 

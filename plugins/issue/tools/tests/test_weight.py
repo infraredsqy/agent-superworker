@@ -1,6 +1,6 @@
 """`weight`: how heavy the pool is, one number, for the pipeline to read.
 
-pf-conduct compares it with a threshold the pipeline configures for the line when a node closes out.
+sw-conduct compares it with a threshold the pipeline configures for the line when a node closes out.
 Two things fix the number: only actionable entries count (the same reading as `status`), and
 `decision: external` ones stay out -- the call is the human's, so counting them would be a floor
 nobody can move and the threshold could never come back under the line.
@@ -41,7 +41,7 @@ class PoolCase(unittest.TestCase):
         # The two marker files are the proof that "this ledger has been init-ed": a write command
         # stops without them and asks you to run state-manage.py init. This fixture only wants an
         # empty pool, so they are laid out here.
-        ledger = self.root / '.pf'
+        ledger = self.root / '.superworker'
         ledger.mkdir(parents=True, exist_ok=True)
         (ledger / '.gitignore').write_text('meta/\nworktrees/\ntemp/\n', encoding='utf-8')
         (ledger / '.gitattributes').write_text('** -text\n', encoding='utf-8')

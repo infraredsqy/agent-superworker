@@ -3,7 +3,7 @@
 # ============================================================================
 # Called only by conduct_spawn.py (the pipeline reaches it through `state-manage.py next --spawn` and
 # `dispatch <cycle>`), never used by a human directly. It opens one kind of session:
-#   with -PromptFile: opens a **working** node session (the pf-conduct that takes one DAG node on), and
+#   with -PromptFile: opens a **working** node session (the sw-conduct that takes one DAG node on), and
 #   the prompt is the whole of that file.
 # `-PromptFile` is **mandatory**: with no prompt there is no session to open, and without it the script
 # fails and exits, never sending a gesture.
@@ -56,7 +56,7 @@
 #   make this line lie down silently**, while on the surface it still looks like it is running. So
 #   every API call retries at most 3 times (exponential backoff 2s / 4s); when all of them fail it
 #   writes the degradation marker (`spawn-common.ps1` + `marker.py`: one conspicuous file named after
-#   the line), so the next manual /pf-conduct can see "this broke here". On a successful dispatch that
+#   the line), so the next manual /sw-conduct can see "this broke here". On a successful dispatch that
 #   marker is cleared (its presence = the chain is broken right now).
 #   One file per line: with parallel=2 two lines run side by side, and this line's success clears only
 #   this line's marker, never another line's broken-chain mark.

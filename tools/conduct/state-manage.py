@@ -85,8 +85,8 @@ _impl = _load_impl()
 globals().update({name: getattr(_impl, name) for name in _impl.__all__})
 
 
-class _NextHelp(argparse.Action):
-    """`next --help`: the contract text on the tail of the help, which is only computable by really printing.
+class _PlanHelp(argparse.Action):
+    """`plan --help`: the contract text on the tail of the help, which is only computable by really printing.
 
     `_render_contract` has to load the pipeline package by path (`_load_pipeline`), so it hangs off the
     printing moment -- building the parser would otherwise make every state-manage command carry that
@@ -95,7 +95,7 @@ class _NextHelp(argparse.Action):
     """
 
     def __init__(self, option_strings, dest, default=argparse.SUPPRESS,
-                 help='Print `next`\'s help (the tail carries the full set of actions)'):
+                 help='Print `plan`\'s help (the tail carries the full set of actions)'):
         # `dest` is the one argparse computes for itself (`'help'`): a reader of the parser recognizes
         # this help action by it, and this action's whole job is to print the help.
         super().__init__(option_strings, dest, nargs=0, default=default, help=help)
@@ -135,7 +135,10 @@ _ROUTES = {
     ('migrate', None): lambda a: cmd_migrate(a.generation, a.project, a.home),
     ('clean-temp', None): lambda a: cmd_clean_temp(a.project, a.node, a.yes, a.force),
     ('fork-worktree', None): lambda a: cmd_fork_worktree(a.node),
-    ('next', None): cmd_next,
+    ('plan', None): cmd_plan,
+    ('hold', None): cmd_hold,
+    ('settle', None): cmd_settle,
+    ('advance', None): cmd_advance,
     ('dispatch', None): cmd_dispatch,
 
     ('cycle', 'create'): lambda a: cmd_cycle_create(a.id, a.title, a.force, a.tags),
@@ -146,7 +149,6 @@ _ROUTES = {
     ('cycle', 'list'): lambda a: cmd_cycle_list(),
     ('cycle', 'current'): lambda a: cmd_cycle_current(),
     ('cycle', 'show'): lambda a: cmd_cycle_show(a.id, a.node),
-    ('cycle', 'hold'): lambda a: cmd_cycle_hold(a.id, a.node),
     ('cycle', 'close'): lambda a: cmd_cycle_close(a.id, a.node, a.result),
     ('cycle', 'retry'): lambda a: cmd_cycle_retry(a.id, a.node, a.summary, a.drop),
 
@@ -207,12 +209,13 @@ def main(argv=None) -> None:
 
     p_cyc = sub.add_parser(
         'cycle',
-        help='One line of work: create / start / rename / status / policy / list / current / show / '
-             'hold / close / retry',
+        help='One line of work: create / start / rename / status / policy / list / current / '
+             'show / close / retry',
         description='A cycle is one line of work: it picks ONE DAG node at a time, hands it to a '
                     'session, and records the step when that session reports back. This group owns '
                     'the line itself -- its identity, whether it is in service, its policies, which '
-                    'nodes it is holding, and the path it has walked.',
+                    'nodes it is holding, and the path it has walked. Claiming a node is not here: '
+                    '`sw hold` is its own word.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
     cyc_sub = p_cyc.add_subparsers(dest='cycle_command')
 
@@ -246,7 +249,7 @@ def main(argv=None) -> None:
                              'writes). A positive integer, or `off` for the default '
                              + str(POLICY_DEFAULTS['parallel']))
     p_cst_.add_argument('--force', action='store_true',
-                        help='Start anyway while another cycle is active (a bare `next` will then '
+                        help='Start anyway while another cycle is active (a bare `advance` will then '
                              'have to be told which cycle)')
 
     p_crn = cyc_sub.add_parser('rename', help='Rename an existing cycle')
@@ -304,10 +307,6 @@ def main(argv=None) -> None:
     p_csh.add_argument('id')
     p_csh.add_argument('node')
 
-    p_chd = cyc_sub.add_parser('hold', help='Pin the cycle on a node: this is how work is claimed')
-    p_chd.add_argument('id')
-    p_chd.add_argument('node')
-
     p_ccl = cyc_sub.add_parser('close',
                                help="Record the step on the cycle's path and let the node go")
     p_ccl.add_argument('id')
@@ -322,7 +321,7 @@ def main(argv=None) -> None:
     p_crt.add_argument('node')
     p_crt.add_argument('--summary', help='Why the node was restarted')
     p_crt.add_argument('--drop', action='store_true',
-                       help='Leave no ticket at all. A `pending` ticket is a red light: `next` '
+                       help='Leave no ticket at all. A `pending` ticket is a red light: `plan` '
                             'waits on it forever, so dropping it is what lets the retry be '
                             'dispatched')
 
@@ -533,58 +532,92 @@ def main(argv=None) -> None:
                       help='Say what would be noted; write nothing')
     p_si.add_argument('--project', default=None, help='Project root (default: current directory)')
 
-    p_next = sub.add_parser(
-        'next', help='Show (or do) the next pipeline action',
-        description='The one entry point. plan: read-only, writes nothing. apply (no --plan): '
-                    "drive the pipeline to its next stable action -- consume a finished node's "
-                    'signal, do the bookkeeping, stop at the first thing a caller can act on. '
-                    'The actions a caller may have to act on are `dispatch` (spawn this node), '
-                    '`insert_node` (a node was just put into the graph and nothing was opened: '
-                    'commit and push, then run `next --spawn` again and the pick decides), '
-                    '`wait` (read its note / close_with and run that one command), `ask_user`, '
-                    '`stop_pipeline`, `no_cycle` (there is no cycle yet: opening one takes a '
-                    "human's intent). An `open_node` never reaches you -- it is the tool pinning "
-                    "the next node itself, and what you read is that slot's `dispatch`. "
-                    'The returned action NEVER carries commands to run: the tool runs them.',
+    p_plan = sub.add_parser(
+        'plan', help='Read the next pipeline step (writes nothing)',
+        description='Read-only, and that is the whole of it: what the next step is, writing not one '
+                    'byte. The answer is one action -- `dispatch` (a node is claimed: send it out), '
+                    '`open_node` (the line holds no node: the head of the ranking is what `hold` '
+                    'would claim), `stop_pipeline` (nothing left, or the line was stopped), `wait` '
+                    '(a ticket is owed or a session is already out: read `note` / `close_with`, '
+                    'never poll), `ask_user`, `no_cycle`. `--after <node>` asks the closing question '
+                    'instead: that node\'s ticket is on disk, and settling it, where would the line '
+                    'go. Carrying any of it out is `hold` + `dispatch` (the two single words) or '
+                    '`advance` (all of it in one word).',
         # `-h` is this parser's own action because its help carries the action vocabulary
         # (`conduct_pipeline.ACTIONS`, the single source the contract is computed from) as an
         # epilog, computed at print time.
         add_help=False,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p_next.add_argument('-h', '--help', action=_NextHelp)
-    p_next.add_argument('--cycle', help='Cycle id (default: the single active cycle)')
-    p_next.add_argument('--project', default=None, help='Project root (default: current directory)')
-    p_next.add_argument('--plan', action='store_true',
-                        help='Read-only: never write prompt files or touch state')
-    p_next.add_argument('--json', action='store_true', help='Print raw JSON')
-    dec = p_next.add_mutually_exclusive_group()
-    dec.add_argument('--continue', dest='cont', action='store_true',
-                     help='Closing call: keep going (a stop rule that says stop still wins)')
-    dec.add_argument('--stop', dest='stop', action='store_true',
-                     help='Closing call: stop here (parks the cycle)')
-    p_next.add_argument('--node', help='Closing call: which ready node to run next')
-    p_next.add_argument('--note', default='', help='Why the closing call decided that')
-    p_next.add_argument('--after', dest='after', default=None, metavar='NODE_ID',
-                        help='The worker closing its own node: settle the node whose work just '
-                             'finished against the signal it already wrote, then dispatch or stop. '
-                             'A node still in flight answers `wait` instead of being read as '
-                             'delivered')
-    p_next.add_argument('--spawn', action='store_true',
-                        help='If the resulting action is a dispatch, start that session too '
-                             '(makes the closing call one-and-done: settle, then spawn)')
-    p_next.add_argument('--spawner', default=None, metavar='KIND|PATH',
-                        help='Which spawner opens that session: `dsh`, `zcode`, or a path. '
-                             'Default: whichever host this shell runs under.')
+    p_plan.add_argument('-h', '--help', action=_PlanHelp)
+    p_plan.add_argument('--cycle', default=None, help='Cycle id (default: the single active cycle)')
+    p_plan.add_argument('--project', default=None, help='Project root (default: current directory)')
+    p_plan.add_argument('--json', action='store_true', help='Print raw JSON')
+    p_plan.add_argument('--after', default=None, metavar='NODE_ID',
+                        help='The closing rehearsal: this node has handed in its ticket, and '
+                             'settling it, where would the line go. Read-only all the same -- the '
+                             'writing half is `settle`')
+
+    p_hld = sub.add_parser(
+        'hold', help='Claim nodes for a line: this is how work is taken',
+        description='The claim step of the standard flow: `plan` names the head of the ranking, '
+                    '`hold <node>` puts it in the line\'s hand, `dispatch <cycle>` lands its '
+                    'material and opens its session. Several ids in one line are one write, all or '
+                    'none. An id already in that hand is not an error (nothing is written twice); '
+                    'an id another line holds is refused with nothing written.',
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p_hld.add_argument('node', nargs='+', metavar='NODE',
+                       help='The node (or nodes) to claim; a prefix of the id is enough')
+    p_hld.add_argument('--cycle', default=None, help='Cycle id (default: the single active cycle)')
+    p_hld.add_argument('--project', default=None, help='Project root (default: current directory)')
+
+    p_set = sub.add_parser(
+        'settle', help="Record one node's end: the step, the claim laid down, the graph mark",
+        description='The write half of a worker\'s close, and the whole of it: read this node\'s '
+                    'handoff ticket, put the verdict into the line\'s path, lay the claim down, mark '
+                    'the graph node `completed` / `shelved`, and run the close-time plugin seam (an '
+                    'offer there may put a maintenance node into the graph, wired in front of the '
+                    'node this close would have opened next). It claims nothing, lands no prompt, '
+                    'opens no session and stops no line of its own accord -- the next claim is '
+                    '`hold`\'s, the session is `dispatch`\'s, and `advance` does both. A missing '
+                    'ticket, or one still `pending`, is refused with nothing written. `--dry-run` is '
+                    'the same gates and criteria with the effect shaped away: it reports the step, '
+                    'the graph mark and what the seam would insert, and writes not one byte.',
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p_set.add_argument('node', metavar='NODE',
+                       help='The DAG node whose work just finished (a prefix is enough)')
+    p_set.add_argument('--cycle', default=None,
+                       help='Cycle id (default: read off the node -- a node belongs to one line)')
+    p_set.add_argument('--project', default=None, help='Project root (default: current directory)')
+    p_set.add_argument('--json', action='store_true', help='Print raw JSON')
+    p_set.add_argument('--dry-run', action='store_true',
+                       help='Report the step, the mark and the seam, and write nothing')
+
+    p_adv = sub.add_parser(
+        'advance', help='Claim the free slots, land each cell\'s material, open the sessions',
+        description='The composed word, and nothing new: claim the nodes the line has free slots '
+                    'for (the head of the graph\'s ranking, as many as `parallel` allows), land each '
+                    'one\'s prompt and run doc, then hand the cells in hand to the opener, which '
+                    'opens one session per cell. A line that stopped with nothing left is turned '
+                    '`inactive`. Every move in it is a word of its own (`hold`, `dispatch`), so the '
+                    'same work can always be done one reading at a time. It settles nothing -- a '
+                    'node whose work ended is recorded by `settle` -- and it never moves a node\'s '
+                    'status.',
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p_adv.add_argument('--cycle', default=None, help='Cycle id (default: the single active cycle)')
+    p_adv.add_argument('--project', default=None, help='Project root (default: current directory)')
+    p_adv.add_argument('--json', action='store_true', help='Print raw JSON')
+    p_adv.add_argument('--spawner', default=None, metavar='KIND|PATH',
+                       help='Which spawner opens those sessions: `dsh`, `zcode`, or a path. '
+                            'Default: whichever host this shell runs under.')
 
     p_disp = sub.add_parser(
         'dispatch',
-        help='Start the session for the node this cycle is holding (the prompt was written when '
-             'that node was pinned)',
-        description='Dispatch and nothing else: read the node this cycle holds, then start the '
-                    'session whose prompt the step that pinned it already wrote at '
-                    '.superworker/meta/launch/<cycle>/<node>/prompt.txt. No bookkeeping and no state change '
-                    '-- that is what makes "commit and push first, then dispatch" expressible: the '
-                    'next session boots in the same worktree and pulls. '
+        help='Open the sessions of the nodes this cycle holds (their prompts are already landed)',
+        description='Dispatch and nothing else: read the nodes this cycle holds, then start one '
+                    'session per cell whose prompt the step that prepared it already landed at '
+                    '.superworker/meta/launch/<cycle>/<node>/prompt.txt. No bookkeeping and no state '
+                    'change -- that is what makes "commit and push first, then dispatch" '
+                    'expressible: the next session boots in the same worktree and pulls. '
                     'DSH_CONDUCT_SPAWN_DRY_RUN=1 makes the call and reports it without opening a '
                     'session.',
         formatter_class=argparse.RawDescriptionHelpFormatter)

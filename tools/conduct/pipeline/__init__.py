@@ -17,9 +17,10 @@ because those are what a caller patches. The machinery is here:
                  wire its edges -- a graph edit only, never a session
     plugin_host.py  the generic plugin host: the Context a plugin is handed, and the two questions
                  asked of the folders under `plugins/` (an insertion now, a gate at the dispatch)
-    actions.py   state -> an action package (dispatch / wait / ask_user / stop)
-    planner.py   `plan()`: the pure decision, including the node's own close
-    writer.py    `apply()` / `record()`: run the commands, and enforce the apply contract
+    actions.py   state -> an action package (dispatch / wait / ask_user / stop / settle)
+    planner.py   `plan()`: the pure decision, including one node's closing reading
+    writer.py    `apply()` / `settle()` / `dispatch_cells()` / `advance()`: run the commands, and
+                 enforce the apply contract
 
 There is no stage table and no per-round file: one cycle picks one DAG node at a time, and how that
 node splits its own work is the session's business. No plugin is a part of this package: a plugin is
@@ -92,13 +93,14 @@ __all__ = [
     '_ask', '_dispatch_many', '_insert_node', '_insertions_due', '_pick_insertions_due',
     'attention_items', '_ticket_wait',
     '_retry_wait', '_sessions_wait', '_close_commands', '_stop_action', 'render_action',
+    'render_advance',
 
-    # planner: plan() and the node's own close
-    'stop_criterion', 'plan', '_close_own_node', '_named_node_outside_scope',
+    # planner: plan() and one node's closing reading
+    'stop_criterion', 'plan', '_settle_plan', '_settle_action', '_named_node_outside_scope',
 
-    # writer: apply() / record()
-    'MAX_SETTLE_STEPS', '_snapshot', 'resolve_spawner', 'spawn_session', 'clean_launch_dir',
-    'apply', 'record',
+    # writer: apply(), and the three words built on it
+    '_snapshot', 'resolve_spawner', 'spawn_session', 'clean_launch_dir',
+    'apply', 'settle', 'dispatch_cells', 'advance',
 ]
 
 # One list, resolved here: every name above is taken from whichever layer defines it (the layer

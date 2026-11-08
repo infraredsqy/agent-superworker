@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """`sw`: one command in front of the tools.
 
-Every skill says `sw next`, `sw handoff`, `sw dag add`: where the tools live is resolved here, once,
+Every skill says `sw plan`, `sw settle`, `sw dag add`: where the tools live is resolved here, once,
 from this file's own location, so the prose reads the same on every machine.
 
 Everything else forwards to a tool, keeping the tool's own subcommand names so the docs stay
@@ -84,7 +84,7 @@ SELF_VERBS = (
 )
 
 #: The words `sw` hands to a tool. One row each: the name, the file that answers it, whether the
-#: name goes along in the argv (`sw next` reaches `state-manage.py` as `next`, `sw dag add` reaches
+#: name goes along in the argv (`sw plan` reaches `state-manage.py` as `plan`, `sw dag add` reaches
 #: `dag-manage.py` as `add`), and the one line of sense `--help` prints.
 #:
 #: A forwarded verb's flags live in the tool's own parser, and `sw <verb> --help` prints them: that
@@ -97,8 +97,11 @@ FORWARD_VERBS = (
     ('init', STATE_MANAGE, True, 'put the ledger in place (run once per project)'),
     ('register', STATE_MANAGE, True, "write the ledger's git merge driver into this project"),
     ('migrate', STATE_MANAGE, True, "move a workspace's records out of the old `.pf/`"),
-    ('next', STATE_MANAGE, True, 'show (or do) the next pipeline action'),
-    ('dispatch', STATE_MANAGE, True, 'start the session for the node the cycle holds'),
+    ('plan', STATE_MANAGE, True, 'read the next pipeline step (writes nothing)'),
+    ('hold', STATE_MANAGE, True, 'claim nodes for a line: this is how work is taken'),
+    ('settle', STATE_MANAGE, True, "record one node's end: the step, the claim, the graph mark"),
+    ('advance', STATE_MANAGE, True, 'claim the free slots, land the material, open the sessions'),
+    ('dispatch', STATE_MANAGE, True, 'open the sessions of the nodes the cycle holds'),
     ('clean-temp', STATE_MANAGE, True, "list (or remove) every node's temp/ directory"),
     ('fork-worktree', STATE_MANAGE, True, "fork one node's parallel-mode worktree"),
     ('handoff', HANDOFF, False, "a worker's own closing call for the line it just ran"),
@@ -188,7 +191,7 @@ _USAGE_SHAPE = """\
 sw -- the agent pipeline's own command
 
   Level 2 is a verb: it acts on the project or on the pipeline itself. Level 3 is a noun -- a record
-  with an identity -- plus the verb that acts on it. So `sw init` and `sw next` are verbs, and
+  with an identity -- plus the verb that acts on it. So `sw init` and `sw plan` are verbs, and
   `sw cycle list`, `sw dag add` are a group's verbs.
 
   Under the Windows `.cmd` shim an argument loses its double quotes and its `|` before Python starts:

@@ -235,7 +235,7 @@ class TestTheSessionNote(SharedCase):
         """A session `append` wrote comes back as it is from `read` / `sessions_of`, by role;
         writing the same one twice lands one entry.
 
-        What this holds off: a retry growing a duplicate entry. `next --spawn` re-run after a
+        What this holds off: a retry growing a duplicate entry. `advance` re-run after a
         half-way failure would put the same run in the note twice, and a human leafing through the
         session history later reads it as two dispatches. The entry that stores `null` for `at=None`
         holds off a made-up moment: a made-up moment looks exactly like a real one in the record.

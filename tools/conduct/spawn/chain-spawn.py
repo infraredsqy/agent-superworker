@@ -3,7 +3,7 @@
 
     python chain-spawn.py --prompt-file <path> [--cycle-id <id>] [--workspace <dir>] [--dry-run]
 
-The pipeline (`next --spawn` / `dispatch <cycle>`) decides WHAT the next session works on before it
+The pipeline (`advance` / `dispatch <cycle>`) decides WHAT the next session works on before it
 reaches the spawner. This file is the other caller shape: a chain a skill runs on itself --
 text-repair rounds, say -- where the prompt file already carries the whole handoff (its first line is
 the next invocation line).
@@ -22,7 +22,7 @@ it is one more mouth the gate has to cover: the gate is asked with the workspace
 the line's own record when `--cycle-id` names one this project knows (the record is empty otherwise:
 the chain's name need not be a line, and a gate over a project-level setting is answerable either
 way). Any reason the gate hands back refuses the start with one stderr line and a non-zero exit, and
-no session -- the same answer `next` and `dispatch` give. `--dry-run` asks too: what it prints is the
+no session -- the same answer `plan` and `dispatch` give. `--dry-run` asks too: what it prints is the
 session that *would* open, and a gate about to say no is part of that answer.
 
 One guarantee does NOT come with it, and stating it beats assuming it: the spawn claim. A claim is

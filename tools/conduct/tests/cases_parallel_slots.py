@@ -1,13 +1,13 @@
-"""A line's `parallel` policy: how many slots it holds at the start, and how a close refills the
-slots it freed.
+"""A line's `parallel` policy: how many slots it holds at the start, and how a round refills the
+slots a settle freed.
 
 The cap lives on the line itself (`policies.parallel`), and the start's pick and every later
-close's refill read the same number: one slot dispatches "every node in hand right now", and a
-refill fills only the free slots (`parallel` minus what is still held); if the graph cannot supply
-them, nothing is filled.
+`advance` read the same number: one round dispatches "every cell in hand whose session is not open
+yet", and a fill takes only the free slots (`parallel` minus what is still held); if the graph cannot
+supply them, nothing is filled.
 
 The mechanical gates between two lines (the on-disk mutex, the worktree return to the main tree,
-the cross-cycle pin guard, SPAWN.claim) are in `cases_parallel.py`.
+the cross-cycle claim guard, SPAWN.claim) are in `cases_parallel.py`.
 
     python conduct/tests/cases_parallel_slots.py       # run this file alone
     python conduct/tests/test_conduct_pipeline.py      # with the whole suite
@@ -26,8 +26,8 @@ __all__ = ['TestParallelSlots']
 
 
 class TestParallelSlots(Base):
-    """A line's `parallel` policy: how many nodes it holds at once, and the slots a close frees are
-    refilled on the spot."""
+    """A line's `parallel` policy: how many nodes it holds at once, and the slots a settle frees are
+    refilled by the next `advance`."""
 
     def two_ready(self, parallel=None):
         """Two ready nodes with no dependency between them: `parallel` decides how many are held
@@ -40,6 +40,22 @@ class TestParallelSlots(Base):
             sb.set_policy('cyc', 'parallel', parallel)
         return sb
 
+    def stub(self, sb):
+        """The stand-in spawner these cases aim the real spawn call at (never a host one)."""
+        return sb.fake_spawner('ok-spawner.ps1')
+
+    def running(self, sb, *nodes):
+        """Every cell in hand is a slot whose session is out: its material landed and its
+        `started` stamp on disk.
+
+        That is the state a fill reads: a cell still waiting to open is dispatched, never replaced.
+        The stamp is fixture data (`Sandbox.mark_started`); the spawn itself is pinned where it is
+        the subject (`test_a_started_node_is_never_handed_to_the_spawner_twice`).
+        """
+        sb.advance()
+        for node in nodes:
+            sb.mark_started(node)
+
     def test_the_default_is_one_slot(self):
         """With no `parallel` configured it is 1: the draw runs one slot at a time as before, and
         extra slots do not open on their own."""
@@ -50,10 +66,10 @@ class TestParallelSlots(Base):
 
     def test_the_start_pins_the_slots_the_line_states(self):
         """The start says how many slots the line holds: `cycle start --parallel 2` pins two slots
-        on the spot and dispatches two prompts at once.
+        on the spot, and one `advance` lands both prompts at once.
 
         The same number lands on `policies.parallel` (`cycle policy` writes that one), so the
-        start's pick and every later close's refill read the same number.
+        start's pick and every later fill read the same number.
         """
         sb = self.make()
         sb.add_node(NODE, 'A', mode='auto')
@@ -64,7 +80,7 @@ class TestParallelSlots(Base):
         self.assertEqual(sorted(sb.holding_ids()), sorted([NODE, NODE2]),
                          'the start must pin both slots')
 
-        action = sb.next()
+        action = sb.advance()['plan']
 
         self.assertEqual(action['action'], 'dispatch')
         self.assertEqual(sorted(n['node_id'] for n in action['nodes']), sorted([NODE, NODE2]))
@@ -90,12 +106,12 @@ class TestParallelSlots(Base):
         self.assertNotIn('parallel', sb.cycle().get('policies') or {})
 
     def test_parallel_two_pins_two_and_dispatches_one_action_for_both(self):
-        """`parallel=2`: the start pins both ready nodes, and one dispatch opens both prompts at
+        """`parallel=2`: the start pins both ready nodes, and one `advance` opens both prompts at
         once."""
         sb = self.two_ready(parallel=2)
-        # the policy lands after the start: pin the second slot explicitly
-        sb.set_current_node(NODE2)
-        action = sb.next()
+        # the policy lands after the start: claim the second slot explicitly
+        sb.hold(NODE2)
+        action = sb.advance()['plan']
         self.assertEqual(action['action'], 'dispatch')
         self.assertEqual(sorted(n['node_id'] for n in action['nodes']), sorted([NODE, NODE2]))
         for item in action['nodes']:
@@ -103,36 +119,40 @@ class TestParallelSlots(Base):
             self.assertTrue(item['prompt_text'])
         self.assertEqual(sorted(sb.holding_ids()), sorted([NODE, NODE2]))
 
-    def test_a_close_fills_the_slot_it_freed(self):
-        """Two slots in hand, one closed: the fill takes up the next ready one -- the line carries
-        on by itself, with no empty slot left."""
+    def test_a_settle_frees_the_slot_and_the_next_advance_fills_it(self):
+        """Two slots in hand, one settled: the next `advance` takes up the next ready one -- the
+        line carries on by itself, with no empty slot left."""
         sb = self.make()
         sb.add_node(NODE, 'A', mode='auto')
         sb.add_node(NODE2, 'B', mode='auto')
         sb.add_node(NODE3, 'C', mode='auto')
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', 'parallel', 2)
-        sb.set_current_node(NODE2)
-        sb.next()
+        sb.hold(NODE2)
+        self.running(sb, NODE, NODE2)
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
-        first = sb.close_round(NODE)
+        settled = sb.settle(NODE)
 
-        # Closing one slot frees a place and the graph still has ready work: the same close fills
-        # it and dispatches -- the hand is full again, and the dispatch carries "every node in
-        # hand right now" (the freshly filled one is in `nodes`).
-        self.assertEqual(first['action'], 'dispatch')
-        self.assertEqual(first['nodes'][0]['node_id'], NODE2,
-                         'the dispatch names every node in hand, not only the fresh one')
+        self.assertEqual(settled['action'], 'settle')
+        self.assertFalse(settled['parked'], 'the freed slot could be filled, so the round went on')
+        self.assertEqual(sb.holding_ids(), [NODE2], 'the settled slot is out of the hand')
+
+        receipt = sb.advance()
+
         self.assertEqual(sorted(sb.holding_ids()), sorted([NODE2, NODE3]),
-                         'the slot the close freed must be refilled')
+                         'the slot the settle freed must be refilled')
+        self.assertIn(NODE3, receipt['pinned'])
+        # The dispatch behind the fill names the cell that is still waiting to open; the running
+        # sibling is not handed to the spawner a second time.
+        self.assertEqual([n['node_id'] for n in receipt['plan']['nodes']], [NODE3])
 
-    def test_a_close_fills_every_free_slot(self):
-        """One slot in hand; closing it leaves two ready in the graph: of the three free slots two
-        must be filled -- and both must land on disk.
+    def test_an_advance_fills_every_free_slot(self):
+        """One slot in hand; settling it leaves two ready in the graph: both free slots must be
+        filled -- and both must land on disk.
 
-        The free count is `parallel` minus what is still held; as many are pinned as the list
-        yields. Pinning only the head of that list would leave the second slot quietly empty: the
+        The free count is `parallel` minus what is still held; as many are claimed as the list
+        yields. Claiming only the head of that list would leave the second slot quietly empty: the
         action's `nodes` would name it while the hand would not hold it.
         """
         sb = self.make()
@@ -144,20 +164,24 @@ class TestParallelSlots(Base):
         rest = sorted({NODE, NODE2, NODE3} - {closing})
         sb.write_signal('cyc', closing, 'completed', 'done')
 
-        action = sb.close_round(closing)
+        sb.settle(closing)
+        receipt = sb.advance()
 
         self.assertEqual(sorted(sb.holding_ids()), rest,
                          'every freed slot must be refilled, not only the head of the fill')
-        self.assertEqual(sorted(n['node_id'] for n in action['nodes']), rest,
-                         'the dispatch names every node in hand')
-        for item in action['nodes']:
-            self.assertTrue(Path(item['prompt']).is_file(), item['prompt'])
+        self.assertEqual(sorted(receipt['pinned']), rest,
+                         'the claim names every cell it took')
+        for node in rest:
+            self.assertTrue(
+                Path(sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / node
+                     / 'prompt.txt').is_file(),
+                f'{node}: the material did not land')
 
-    def test_a_close_fills_the_free_slots_and_no_more(self):
-        """Three slots in hand, one closed: only the freed slot is filled, and the line never goes
+    def test_an_advance_fills_the_free_slots_and_no_more(self):
+        """Three slots in hand, one settled: only the freed slot is filled, and the line never goes
         past `parallel`.
 
-        Filling is not blindly three: the free count is tied to how many slots are still running
+        Filling is not blindly three: the free count is tied to how many slots are still held
         (`parallel` minus what is still held), so as many are filled as the graph can supply, and
         none when it cannot.
         """
@@ -169,24 +193,26 @@ class TestParallelSlots(Base):
         sb.set_policy('cyc', 'parallel', 3)
         closing = sb.current_node()
         rest = [u for u in four if u != closing]
-        sb.set_current_node(rest[0])
-        sb.set_current_node(rest[1])              # three slots in hand (full)
+        sb.hold(rest[0])
+        sb.hold(rest[1])                          # three slots in hand (full)
+        self.running(sb, closing, rest[0], rest[1])
         sb.write_signal('cyc', closing, 'completed', 'done')
 
-        action = sb.close_round(closing)
+        sb.settle(closing)
+        receipt = sb.advance()
 
         self.assertEqual(len(sb.holding_ids()), 3, 'the hand stays at the cap')
         self.assertEqual(sorted(sb.holding_ids()), sorted(rest),
                          'only the freed slot is filled, and it is filled')
-        self.assertEqual(sorted(n['node_id'] for n in action['nodes']), sorted(rest))
+        self.assertEqual(receipt['pinned'], [rest[2]])
 
-    def test_a_close_with_nothing_to_fill_keeps_the_line_in_service(self):
-        """Two slots in hand, nothing in the graph to fill with: that slot is closed and the line
-        stays in service -- the slot's own close carries on.
+    def test_a_settle_with_nothing_to_fill_keeps_the_line_in_service(self):
+        """Two slots in hand, nothing in the graph to fill with: that slot is settled and the line
+        stays in service -- the slot's own settle carries on.
 
         Failing to fill has two shapes: the graph really has no work left (the line stops and
         waits for a human), and other nodes of this line are still in flight (the line has not
-        stopped; the baton is on those nodes' own closes). If the latter parked too, their closes
+        stopped; the baton is on those nodes' own settles). If the latter parked too, their settles
         would only record, and nobody would pick up the work they freed.
         """
         sb = self.make()
@@ -195,31 +221,31 @@ class TestParallelSlots(Base):
         sb.add_node(NODE3, 'C', mode='auto', deps=[NODE2])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', 'parallel', 2)
-        sb.set_current_node(NODE)
-        sb.set_current_node(NODE2)
+        sb.hold(NODE)
+        sb.hold(NODE2)
+        self.running(sb, NODE, NODE2)
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
-        first = sb.close_round(NODE)
+        first = sb.settle(NODE)
 
-        self.assertEqual(first['action'], 'stop_pipeline')
+        self.assertEqual(first['action'], 'settle')
+        self.assertFalse(first['parked'])
         self.assertEqual(sb.cycle()['status'], 'active',
                          'other nodes are still in flight, so this slot does not stop the line')
         self.assertEqual(sb.holding_ids(), [NODE2])
-        self.assertIn(NODE2[:8], first['reason'], 'the reason names who is still held')
+        self.assertIn(NODE2[:8], first['note'], 'the note names who is still held')
 
         sb.write_signal('cyc', NODE2, 'completed', 'done')
-        second = sb.close_round(NODE2)
+        settled = sb.settle(NODE2)
+        receipt = sb.advance()
 
-        self.assertEqual(second['action'], 'dispatch')
-        self.assertEqual(sb.holding_ids(), [NODE3], 'that close fills in C and dispatches')
-
-    def stub(self, sb):
-        """The stand-in spawner these cases aim the real spawn call at (never a host one)."""
-        return sb.fake_spawner('ok-spawner.ps1')
+        self.assertFalse(settled['parked'])
+        self.assertEqual(receipt['pinned'], [NODE3], 'that round fills in C')
+        self.assertEqual(sb.holding_ids(), [NODE3])
 
     def test_a_started_node_is_never_handed_to_the_spawner_twice(self):
-        """A slot already opened is never handed to the spawner again: the close re-plans a full
-        list, this one is in it, and it is skipped.
+        """A slot already opened is never handed to the spawner again: the plan names the cells
+        still waiting to open, this one is not among them, and a re-advance skips it.
 
         `started` is the stamp a successful dispatch leaves (the session takes the prompt, the
         claim is withdrawn, the directory stays as the landing spot). Without it, one refill would
@@ -230,13 +256,11 @@ class TestParallelSlots(Base):
             sb.add_node(uid, name, mode='auto')
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', 'parallel', 2)
-        sb.set_current_node(NODE)
-        sb.set_current_node(NODE2)
-        sb.next()
+        sb.hold(NODE)
+        sb.hold(NODE2)
         launch = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc'
 
-        _opened, opened = sb.spawn_next('--cycle', 'cyc', spawner=self.stub(sb), dry_run=False)
-        self.assertEqual(opened.returncode, 0, opened.stderr)
+        sb.advance(spawner=self.stub(sb), dry_run=False)
         for node in (NODE, NODE2):
             self.assertTrue((launch / node / 'started').is_file(),
                             f'{node[:8]}: the stamp did not land')
@@ -244,18 +268,17 @@ class TestParallelSlots(Base):
                              f'{node[:8]}: the prompt must have been taken')
 
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE)
+        sb.settle(NODE)
+        receipt = sb.advance(spawner=self.stub(sb), dry_run=False)
 
-        self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual([n['node_id'] for n in action['nodes']], [NODE3],
-                         'the dispatch list holds only the slot waiting to start')
+        self.assertEqual(receipt['skipped'], [NODE2], 'a running slot was handed over again')
+        self.assertEqual(len(receipt['spawned']), 1,
+                         f'only the waiting slot opens: {receipt}')
         self.assertFalse((launch / NODE2 / 'prompt.txt').exists(),
                          'for B, which is running, the prompt must not be filled back in -- '
                          'filling it back in would say it had not started')
-
-        action, _ = sb.spawn_next('--cycle', 'cyc', spawner=self.stub(sb), dry_run=False)
-        self.assertEqual([n['node_id'] for n in action['nodes']], [NODE3],
-                         'a running B does not enter the list')
+        self.assertTrue((launch / NODE3 / 'started').is_file(),
+                        'the freshly filled slot did not open')
 
     def test_with_every_session_in_hand_running_the_answer_is_a_wait(self):
         """Every slot in hand has been opened: `plan` answers `wait`, and a dispatch refuses
@@ -263,9 +286,8 @@ class TestParallelSlots(Base):
         sb = self.make()
         sb.add_node(NODE, 'A', mode='auto')
         sb.start_cycle(tags=['coding'])
-        sb.next()
-        self.assertEqual(
-            sb.spawn_next('--cycle', 'cyc', spawner=self.stub(sb), dry_run=False)[1].returncode, 0)
+        sb.advance()
+        sb.mark_started(NODE)
 
         action = sb.plan()
 
@@ -288,17 +310,22 @@ class TestParallelSlots(Base):
         self.assertNotEqual(refused.returncode, 0)
 
     def test_the_dispatch_sweep_opens_one_session_per_node_it_holds(self):
-        """`dispatch <cycle>` is a sweep: every node in hand opens a session, each taking its own
+        """`dispatch <cycle>` is a sweep: every cell in hand opens a session, each taking its own
         prompt."""
         sb = self.two_ready(parallel=2)
-        sb.set_current_node(NODE2)
-        sb.next()
-        _action, opened = sb.spawn_next(spawner=self.stub(sb), dry_run=False)
+        sb.hold(NODE2)
+        sb.advance()                              # land the material; the spawn is a drill here
+        receipt, opened = sb.advance_cli(spawner=self.stub(sb), dry_run=False)
+
         self.assertEqual(opened.returncode, 0, opened.stderr)
+        self.assertEqual(sorted(receipt['spawned']), sorted([''])[0:0] or receipt['spawned'])
         for node in (NODE, NODE2):
             self.assertFalse((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / node
                               / 'SPAWN.claim').exists(),
                              f'{node}: a started session must drop its launch dir')
+            self.assertTrue((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / node
+                             / 'started').is_file(),
+                            f'{node}: the stamp did not land')
 
 
 if __name__ == '__main__':

@@ -73,8 +73,8 @@ def _dispatch_many(project: Path, cycle: dict, node_ids: list, dag: dict | None 
         'prompt_text': head['prompt_text'] if len(nodes) == 1 else '',
         'steps': [f'write each node\'s prompt text to its own prompt.txt under '
                   f'{launch_dir(project, cycle["id"])}',
-                  'DSH: spawn one session per node (`dispatch <cycle>` does all of them; '
-                  '`next --spawn` is the one-shot spelling of the same call)'],
+                  'open one session per node (`dispatch <cycle>` does all of them; `advance` is '
+                  'claim, material and session in one word)'],
         'commands': [],
     }
 
@@ -286,24 +286,23 @@ def _ticket_wait(cycle: dict, node_id: str, holding=None) -> dict:
     When the line still holds other nodes (`holding`), that sentence carries them too: their own
     notes are collected as they land, and for the whole line to finish, their own closes have to run.
 
-    `--spawn` is deliberately NOT part of `close_with`: closing a node and starting the next session
+    `advance` is deliberately NOT part of `close_with`: closing a node and starting the next session
     are two steps, because the worker still has to commit and push what it made before the next
     session boots on the same tree.
     """
-    close_with = f'sw next --after {node_id} --json'
+    close_with = f'sw settle {node_id} --json'
     others = [x for x in (holding or []) if x != node_id]
     tail = (f' (still holding {", ".join(x[:8] for x in others)}, their notes are collected as they '
             f'arrive)' if others else '')
     return {
         'action': 'wait', 'cycle': cycle['id'], 'node_id': node_id, 'commands': [],
         'close_with': close_with,
-        'note': f'The note for {node_id[:8]} is already on disk, but this node has not been closed '
-                f'out yet -- do not poll, and do not move the state yourself. '
-                f'Closing it out is one command: {close_with} (the tool reads this node\'s note, '
-                f'closes it, and then tells you whether the next slot is `dispatch` or '
-                f'`stop_pipeline`).{tail}'
-                f' Dispatch comes after this run\'s commit and push: '
-                f'`sw dispatch {cycle["id"]}`.',
+        'note': f'The note for {node_id[:8]} is already on disk, but this node has not been settled '
+                f'yet -- do not poll, and do not move the state yourself. '
+                f'Settling it is one command: {close_with} (the tool reads this node\'s note, '
+                f'closes it, and says whether the line parked).{tail}'
+                f' The next round is `sw advance --cycle {cycle["id"]} --json`, after this run\'s '
+                f'commit and push.',
     }
 
 
@@ -311,8 +310,8 @@ def _sessions_wait(cycle: dict, node_ids: list, holding=None) -> dict:
     """Every slot in hand has its session open: there is nothing to dispatch, so wait for their notes.
 
     A dispatch that names a node whose session already runs would boot a second session onto it --
-    nothing a caller can act on. The next step is their own closes (`next --after <node id>`), so
-    this answers `wait`.
+    nothing a caller can act on. The next step is their own settles (`sw settle <node>`), so this
+    answers `wait`.
     """
     others = [x for x in (holding or []) if x not in node_ids]
     tail = (f' (still holding {", ".join(x[:8] for x in others)}, they keep running)'
@@ -321,7 +320,7 @@ def _sessions_wait(cycle: dict, node_ids: list, holding=None) -> dict:
     return {'action': 'wait', 'cycle': cycle['id'], 'node_id': node_ids[0], 'commands': [],
             'note': f'{names}: their sessions are already open (the `started` stamp is on disk) -- '
                     f'there is nothing to dispatch, so wait for their notes and never poll. '
-                    f'Their own closes: sw next --after <node id> --json.{tail}'}
+                    f'Their own settles: sw settle <node id> --json.{tail}'}
 
 
 def _retry_wait(cycle: dict, node_id: str, holding=None) -> dict:
@@ -330,7 +329,7 @@ def _retry_wait(cycle: dict, node_id: str, holding=None) -> dict:
     The note carries the literal commands of the documented retry: a retry is a tool command, not
     steps an agent has to remember. Three commands, and the `--drop` one cannot be skipped: a
     rewritten `pending` is a red light too, and clearing the note without taking it out leaves
-    `next` answering `wait` forever (this has stalled a line before).
+    `plan` answering `wait` forever (this has stalled a line before).
     """
     others = [x for x in (holding or []) if x != node_id]
     tail = (f' (still holding {", ".join(x[:8] for x in others)}, they keep running)'
@@ -339,22 +338,28 @@ def _retry_wait(cycle: dict, node_id: str, holding=None) -> dict:
             'note': f'The note for {node_id[:8]} is still pending (no verdict yet, or somebody '
                     f'cleared the note to retry); do not poll. Three commands unwind it: '
                     f'sw cycle retry {cycle["id"]} {node_id} --drop --summary "retry", then '
-                    f'sw cycle hold {cycle["id"]} {node_id}, then sw next --spawn --json.'
+                    f'sw hold {node_id} --cycle {cycle["id"]}, then '
+                    f'sw advance --cycle {cycle["id"]} --json.'
                     f'{tail}'}
 
 
 def _close_commands(project: Path, cycle: dict, node_id: str, outcome: str,
-                    decision: str, next_nodes: list | None, park: bool = True) -> list:
-    """The mechanical half of a node's close: record the step, mark the node, pick or park.
+                    park: bool = False) -> list:
+    """The mechanical half of a node's settle: record the step, mark the node, park if told to.
 
     `outcome` is the word the path step keeps (`completed` / `failed` / `stopped` -- the ticket's own
     answer). The DAG is marked in the vocabulary IT owns: a node that delivered is `completed`, one
     that did not is `shelved` (out of play, waiting for a human), and a node being worked on is
     `todo`.
 
-    **Stopping is turning inactive, one hardcoded command.** Whether this line should still push on
-    is not pinned on the graph: the graph grows new nodes, and whether a stopped line should keep
-    running is the human's call. The tool never writes `active`.
+    **Pinning is not here.** A settle records one node's end; which node runs next is `hold`'s
+    (or `advance`'s) decision, read off the plan after the settle has landed. A settle that pinned
+    its own successor would be the composed word wearing a plain word's name.
+
+    **Stopping is turning inactive, one hardcoded command**, and it is the plan's answer: it is
+    passed in here as `park=True` when the stop rule said this round was over. Whether this line
+    should still push on is not pinned on the graph: the graph grows new nodes, and whether a
+    stopped line should keep running is the human's call. The tool never writes `active`.
 
     A node that was not delivered is shelved, but whether the line picks anyone after it walks the
     same fork (the `when_shelved` policy already decided at that step): `shelved` only says this node
@@ -363,17 +368,9 @@ def _close_commands(project: Path, cycle: dict, node_id: str, outcome: str,
     `park=False` registers only and writes not one word of status -- on a line that is not in
     service, the status is the human's to give and the tool has no business touching it (the close
     gate uses it).
-
-    `next_nodes` is the **whole list** this close fills in, and one is pinned per entry: the slots
-    freed can be more than one (`parallel` minus what is still in hand), and pin one too few and that
-    slot sits quietly empty -- the action's `nodes` reports it while the hand on disk does not hold
-    it, and the dispatch goes by what the hand holds.
     """
     cmds = [seam.cmd('cycle', 'close', cycle['id'], node_id, '--result', outcome),
             seam.dag('status', node_id, 'completed' if outcome == 'completed' else 'shelved')]
-    if decision == 'continue' and next_nodes:
-        cmds.extend(seam.cmd('cycle', 'hold', cycle['id'], n['id']) for n in next_nodes)
-        return cmds
     if park:
         cmds.append(seam.cmd('cycle', 'status', cycle['id'], 'inactive'))
     return cmds
@@ -432,20 +429,62 @@ def attention_items(project: Path, cycle: dict, shelved_nodes=(), dag: dict | No
 
 # ── an action as the caller reads it ─────────────────────────────────────────
 
-def render_action(action: dict, as_json: bool = False, preview: bool = False) -> str:
-    """One action as the caller reads it -- the ONE place both `next` front ends print from.
+def render_advance(receipt: dict, as_json: bool = False) -> str:
+    """An `advance` receipt as the caller reads it: what was claimed, what opened, where it stands.
 
-    `preview` is the `--plan` run: **a preview is not executable**. A plan that still carries
-    `commands` has stopped half way (the mechanical steps have not run yet), and that case reports
-    only "still settling" -- it never hands the commands to the caller. This is that invariant's
-    landing point on the output side, shared by both front ends (`conduct_pipeline.py` and
-    `state-manage.py next`).
+    The receipt is not an action -- it is the plan's answer plus what the word did on the way
+    through, and `plan` is its last field: the reading a caller acts on is that one. So the human
+    rendering is the receipt's own lines (cycle, claimed, opened, parked) and then the plan, printed
+    by `render_action`, exactly as a bare `sw plan` would print it. JSON hands the receipt over
+    whole, `plan` included -- and that one field goes through `render_action`'s preview rule first,
+    because an action is never something a caller runs: a `plan` that still holds the mechanical
+    steps reports "still settling" there, and its commands stay with the tool that ran them.
+    """
+    if as_json:
+        payload = dict(receipt)
+        for key in ('plan', 'acted'):
+            value = receipt.get(key)
+            if isinstance(value, dict):
+                payload[key] = json.loads(render_action(dict(value), True, preview=True))
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+    lines = [f"cycle:  {receipt.get('cycle') or '(none)'}"]
+    lines.append('claimed: ' + (', '.join(receipt.get('pinned') or []) or '(none)'))
+    opened = receipt.get('spawned') or []
+    lines.append('opened: ' + (', '.join(opened) if opened else
+                               ('(no opener: the cells keep their prompts)'
+                                if receipt.get('plan', {}).get('nodes') else '(none)')))
+    if receipt.get('parked'):
+        # Why the line came out of service: the reading this word carried out, in its own words.
+        reason = (receipt.get('acted') or {}).get('reason') or ''
+        lines.append('parked: the line was turned inactive'
+                     + (f' -- {reason}' if reason else ' (the plan stopped with nothing in hand)'))
+    if receipt.get('skipped'):
+        lines.append('skipped (already started): ' + ', '.join(receipt['skipped']))
+    if receipt.get('unprompted'):
+        lines.append('no prompt landed yet: ' + ', '.join(receipt['unprompted']))
+    if receipt.get('inserted'):
+        lines.append('inserted into the graph: ' + ', '.join(receipt['inserted']))
+    plan = receipt.get('plan') or {}
+    if plan:
+        lines.append('')
+        lines.append(_action_lines(plan))
+    return '\n'.join(lines)
+
+
+def render_action(action: dict, as_json: bool = False, preview: bool = False) -> str:
+    """One action as the caller reads it -- the ONE place both `plan` front ends print from.
+
+    `preview` is a reading, not an execution: **a preview is not executable**. A plan that still
+    carries `commands` has stopped half way (the mechanical steps have not run yet), and that case
+    reports only "still settling" -- it never hands the commands to the caller. This is that
+    invariant's landing point on the output side, shared by both front ends
+    (`conduct_pipeline.py` and `state-manage.py plan` / `settle --dry-run`).
 
     **At every depth.** An insertion action carries its steps twice -- once mirrored at the top and
     once per insertion (`insertions`, one per source that asked) -- and the nested copy holds the
     same `add`, the same edge edits and the same `spec_of` callable. A preview that scrubbed only the
-    top would hand a caller an executable list through the side door (and `--plan --json` would not
-    even serialize a callable). What stays is what a reader needs: `title`, `spec_path`, `fields`,
+    top would hand a caller an executable list through the side door (and `--json` would not even
+    serialize a callable). What stays is what a reader needs: `title`, `spec_path`, `fields`,
     `steps`, `note`.
 
     `as_json` is only the shape: JSON is for readers other than a human (`ensure_ascii=False`, so
@@ -500,6 +539,15 @@ def _action_lines(action: dict) -> str:
     for key in ('note', 'reason', 'question', 'hint', 'blocked', 'close_with'):
         if action.get(key):
             lines.append(f"{key + ':':<9} {action[key]}")
+    # A settle's own three readings: the verdict the path step keeps, the mark the graph row got,
+    # and whether that write also took the line out of service (the stop rule's answer).
+    if action.get('action') == 'settle':
+        lines.append(f"result: {action.get('result')}")
+        lines.append(f"graph:  {action.get('graph')}")
+        if action.get('parked'):
+            lines.append('parked: this round is over, and the line was turned inactive')
+        if action.get('inserted_node'):
+            lines.append(f"inserted: {action['inserted_node']}")
     if action.get('node_id'):
         lines.append(f"node:   {action.get('node_title', '')}  ({action['node_id']})")
     for item in action.get('nodes') or []:

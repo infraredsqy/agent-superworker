@@ -6,7 +6,6 @@
     python handoff.py --form <cycle> [<node>]      print the ticket this line asks for; write nothing
 
 Options:
-    --dry-run / --no-spawn   accepted and ignored (this command opens no session)
     --project DIR            project root (default: cwd)
 
 `--form` is the shape half of the same contract: it prints the `-o` skeleton with the readings THIS
@@ -20,7 +19,7 @@ Why this exists
 The worker's report and the close of its node are two separate commands on purpose:
 
     handoff.py <cycle> <node> <status>      write the ticket; the node stays in the cycle's hand
-    next --after <node>                     close it, and the next node starts or the run stops
+    settle <node>                           close it; the next round is `advance`'s step
 
 Keeping them apart is what lets a worker report and then think -- and it is why this program opens
 no session. It also leaves a readable middle state: a ticket on disk whose node has not been closed
@@ -34,7 +33,7 @@ prompt is written by this step.
 The one gate is the cycle's own hand: a ticket is accepted only while the cycle is holding the
 node, so a stale session reporting on a node that was closed and released long ago is refused
 before anything is written. A node being redone is claimed again (revive, `cycle retry --drop`,
-`cycle hold`), and its second ticket is legitimate: the path keeps one entry per close, so the
+`hold`), and its second ticket is legitimate: the path keeps one entry per close, so the
 redo reads as the walk it was. The signal file is keyed by the node
 (`.superworker/signals/<cycle>/<node>.json`, next to `state.json`), so no round or stage number appears
 anywhere in this command.
@@ -224,10 +223,6 @@ def main(argv=None) -> int:
     parser.add_argument('--form', action='store_true',
                         help='Print the ticket shape this line asks for, and stop (writes nothing)')
     parser.add_argument('--project', default='.', help='Project root (default: cwd)')
-    parser.add_argument('--dry-run', '--no-spawn', dest='dry_run', action='store_true',
-                        help='Accepted and ignored: this command opens no session, so "spawn '
-                             'nothing" is not a mode it has (kept so an existing caller\'s argv '
-                             'keeps working)')
     args = parser.parse_args(argv)
 
     project = _project_root(Path(args.project).resolve())
@@ -267,7 +262,7 @@ def main(argv=None) -> int:
         print(f'Error: cycle "{args.cycle}" is not holding {args.node} ({where}); nothing was '
               f'written. A node this line already closed out is the usual reason: put it back in '
               f'play and pin the line on it again -- `sw dag status {args.node} todo`, then '
-              f'`sw cycle hold {args.cycle} {args.node}` -- and the extra round lands as another '
+              f'`sw hold {args.node} --cycle {args.cycle}` -- and the extra round lands as another '
               f'step on the line.', file=sys.stderr)
         return 2
     try:
@@ -280,9 +275,8 @@ def main(argv=None) -> int:
 
     try:
         # One read-only question: the ticket has just been written, and the pipeline's answer right now
-        # is "wait for the close" plus that one closing command. The `record` half (moving the line
-        # to its next stable action, topping up other slots' prompts along the way) stays with the
-        # close and dispatch step; not a byte is written here.
+        # is "wait for the close" plus that one closing command. The claim, the material and the
+        # session are `advance`'s step; not a byte is written here.
         action = pipeline.plan(project, args.cycle)
     except (RuntimeError, ValueError) as e:
         _write_marker(project, args.cycle, 'plan', str(e))
@@ -291,11 +285,11 @@ def main(argv=None) -> int:
 
     kind = action.get('action')
     if kind == 'wait' and action.get('close_with'):
-        # This slot has just written its ticket and has not been closed yet. No session is spawned here
-        # -- the closing leg is run by the caller as `next --after <node_id> --json` (which pulls no
-        # session either: dispatch is a separate command after the commit and push, `dispatch
-        # <cycle>`), so this only reports clearly rather than stopping quietly.
-        print(f'handoff: {args.node} ticket written; the node is not closed yet -- finish it '
+        # This slot has just written its ticket and has not been settled yet. No session is spawned
+        # here -- the closing leg is run by the caller as `settle <node_id> --json` (which opens no
+        # session either: the next round is `advance`, after the commit and push), so this only
+        # reports clearly rather than stopping quietly.
+        print(f'handoff: {args.node} ticket written; the node is not settled yet -- finish it '
               f'with `{action["close_with"]}` (no session was spawned)')
     else:
         print(f'handoff: {args.node} ticket written; the pipeline reads {kind} '

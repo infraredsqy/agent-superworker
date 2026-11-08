@@ -4,7 +4,7 @@ The shape: **one DAG node = one cycle step = one `sw-conduct` session**, recorde
 record's own `path` inside `state.json`. There is no stage and no round -- no per-round file, no
 second pointer, no cell index anywhere. A node's work is done when its signal is on disk
 (`.superworker/signals/<cycle>/<node_id>.json`), and the worker that ran it closes it with its ONE
-`next --after <node_id>` call.
+`sw settle <node>` call.
 
 **Two roots.** The account -- the DAG, `state.json`, the signals, the instructions account, a
 node's own text -- is the LEDGER at `<project>/.superworker/`. Everything
@@ -22,13 +22,14 @@ Two requirements pull against each other here, and the design is the compromise 
 
 So the harness runs the *same* code two ways, and a test proves the two agree:
 
-    FAST (default)      conduct_pipeline.py is imported once and called in-process (`plan` / `apply` /
-                        `record`). The `state-manage.py` commands those functions would shell out
-                        to are executed by calling that module's own `cmd_*` functions in-process,
-                        with its path globals pointed at the sandbox; the `dag-manage` calls inside
-                        `ranked_ready_nodes` are answered by dag-manage's own `cmd_list` /
-                        `cmd_status`. Same module, same functions, same files, no process start.
-    CLI (`cli=True`)    the same operations go through `subprocess` -> `state-manage.py next`.
+    FAST (default)      conduct_pipeline.py is imported once and called in-process (`plan` /
+                        `advance` / `settle` / `apply`). The `state-manage.py` commands those
+                        functions would shell out to are executed by calling that module's own
+                        `cmd_*` functions in-process, with its path globals pointed at the sandbox;
+                        the `dag-manage` calls inside `ranked_ready_nodes` are answered by
+                        dag-manage's own `cmd_list` / `cmd_status`. Same module, same functions,
+                        same files, no process start.
+    CLI (`cli=True`)    the same operations go through `subprocess` -> `state-manage.py <verb>`.
 
 `TestContract.test_the_fast_path_and_the_cli_agree` drives one whole round both ways and compares
 the two projects file by file, so the fast path cannot silently drift from the shipped surface.
@@ -42,8 +43,8 @@ rather than a step of it, documented where it is defined:
                       per plan was the single biggest cost in the suite).
 
     the ONLY ways state moves, in either mode:
-      * `conduct_pipeline.plan / apply / record`   (the tool's own planner and writer)
-      * the `state-manage.py` commands          (human/launcher levers and the closing call)
+      * `conduct_pipeline.plan / advance / settle / apply`   (the tool's own words)
+      * the `state-manage.py` commands          (human/launcher levers and the worker's settle)
       * `handoff.py` / `signal.py`              (what a worker session's last act really is)
 
 What the harness never does: set the cycle's pointer, append a path step, or close a node itself.
@@ -55,10 +56,11 @@ forge on-disk state the tools refuse to produce, which is how the guards against
 Two roles are stubbed, because they are what a session does and no session can be started here:
 
     WorkerSession    a node's session: do the work, then run ONE command (handoff.py / signal.py)
-    Closer           the same worker's closing act: read what `next` asks for, run `next --after`
+    the settle       the same worker's closing act: `sw settle <node>` records the node it ran
 
-`Driver` plays both, node after node, and checks the apply contract on every applied action
-("applied" must really have moved the project on disk).
+`Driver` plays the host and both roles: it runs `advance`, lets the worker report, runs the worker's
+own `settle`, and checks the apply contract on every move that claims `applied` ("applied" must
+really have moved the project on disk).
 """
 
 from __future__ import annotations

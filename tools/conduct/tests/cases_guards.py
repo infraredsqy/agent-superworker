@@ -372,11 +372,11 @@ class TestEverySelfEntryHasARealDoor(Base):
 
     Two legal doors, and the argument for each:
 
-      * **`sw` routes to it** -- a verb row (`sw next` hands `next` to `state-manage.py`), a group
+      * **`sw` routes to it** -- a verb row (`sw plan` hands `plan` to `state-manage.py`), a group
         row (`sw cycle list`, `sw dag add`: the group hands the rest of the line over), or a row whose
         name is not one of the tool's own words, which wraps the whole parser;
-      * **a shipped module really calls it.** `plan` / `apply` / `record` are `conduct_pipeline.py`'s
-        own entry, and `state/nextcmd.py` and `handoff.py` call them: the allowance is written down
+      * **a shipped module really calls it.** `plan` / `settle` / `advance` are `conduct_pipeline.py`'s
+        own entry, and `state/plancmd.py` and `handoff.py` call them: the allowance is written down
         here, once, and each name in it has to keep a caller or it goes red as well.
 
     A third kind -- a word whose only caller is the case that tests it -- is what the deleted `contract`
@@ -384,7 +384,7 @@ class TestEverySelfEntryHasARealDoor(Base):
     """
 
     #: The entries with no `sw` word of their own, each reached by a shipped module instead.
-    INTERNAL = {CONDUCT_PIPELINE: ('plan', 'apply', 'record')}
+    INTERNAL = {CONDUCT_PIPELINE: ('plan', 'settle', 'advance')}
 
     def routing_tables(self, commands: dict):
         """`sw.py`'s two tables: `(named, wrapped)`.

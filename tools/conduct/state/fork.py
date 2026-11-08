@@ -8,7 +8,7 @@ main tree. Both ends are tool gates:
     fork-worktree <node_id>   at the end of prep: check the main tree is clean and the short id is
                               free, then `git worktree add`, and write
                               `.superworker/meta/FORK-<short id>.json` (node / branch / head / at)
-    next --after <node_id>    at the start of the close: a node with a FORK record on disk may only
+    settle <node_id>          at the start of the close: a node with a FORK record on disk may only
                               be settled once worktree and branch are both deleted (the merge-back is
                               cleaned up); once the gate passes, the record is taken off
 

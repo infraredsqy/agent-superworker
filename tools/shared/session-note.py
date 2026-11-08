@@ -163,7 +163,7 @@ def append(project, node_id, role: str, session: str, host: str | None = None,
            at=NOW, source: str | None = None) -> bool:
     """Note one session under one role. True when the file changed, False when it was already there.
 
-    Appending the same (role, session) twice is a no-op: `next --spawn` retried after a partial
+    Appending the same (role, session) twice is a no-op: `advance` retried after a partial
     failure must not leave the same run in the note twice. The role is checked loudly here -- a
     caller that invents a third role is a bug, and a silently accepted one would be a note no reader
     ever looks at.

@@ -351,7 +351,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(0, self.set_('test_tier', 'minimal').returncode)
         self.assertEqual({'test_tier': 'minimal'}, self.read_project())
 
-    def test_pf_forwards_the_verb(self):
+    def test_sw_forwards_the_verb(self):
         self.assertEqual('full\n', self.sw('config', 'get', 'test_tier').stdout)
 
     # ── refusals ─────────────────────────────────────────────────────────────

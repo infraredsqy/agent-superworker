@@ -36,7 +36,7 @@ __all__ = ['TestForkWorktree']
 
 @unittest.skipUnless(GIT, 'git is not on PATH')
 class TestForkWorktree(unittest.TestCase):
-    """fork-worktree, and the FORK backstop gate of `next --after`."""
+    """fork-worktree, and the FORK backstop gate of `settle`."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix='conduct-fork-')
@@ -94,7 +94,7 @@ class TestForkWorktree(unittest.TestCase):
         self.assertEqual(self.head, rec['head'])
         self.assertIn('at', rec)
 
-        proc = self._state_manage('next', '--after', NODE)
+        proc = self._state_manage('settle', NODE)
 
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('the merge-back is unfinished', proc.stderr,
@@ -121,7 +121,7 @@ class TestForkWorktree(unittest.TestCase):
         git(self.repo, 'worktree', 'remove', f'.superworker/worktrees/{self.short}')
         git(self.repo, 'branch', '-D', f'sw/{self.short}')
 
-        proc = self._state_manage('next', '--after', NODE)
+        proc = self._state_manage('settle', NODE)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertFalse(self.record.exists(), 'the gate passed: the FORK record must be dropped')
@@ -130,7 +130,7 @@ class TestForkWorktree(unittest.TestCase):
         self.assertEqual([NODE], [s['node'] for s in cycle['path']], 'the node must be settled')
 
     def test_a_close_without_a_fork_record_is_untouched_by_the_gate(self):
-        proc = self._state_manage('next', '--after', NODE)
+        proc = self._state_manage('settle', NODE)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual([NODE], [s['node'] for s in self._cycle()['path']])

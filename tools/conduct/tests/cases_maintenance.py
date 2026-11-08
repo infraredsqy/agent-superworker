@@ -283,7 +283,7 @@ def coding_line(test, debt, *, thresholds=True, value=None, dispatch=True, pair=
     if thresholds:
         sb.set_policy('cyc', debt.line, debt.at)
     if dispatch:
-        sb.next()                                  # the dispatch for NODE
+        sb.advance()['plan']                                  # the dispatch for NODE
         debt.report(sb, NODE, value)
     return sb
 
@@ -377,13 +377,16 @@ class ChannelCases:
         control = coding_line(self, self.DEBT, thresholds=False, value=self.DEBT.under)
         configured = coding_line(self, self.DEBT, thresholds=True, value=self.DEBT.under)
 
-        control_action = control.close_round(NODE)
-        configured_action = configured.close_round(NODE)
+        control_action = control.settle(NODE)
+        configured_action = configured.settle(NODE)
 
-        self.assertEqual(control_action['action'], 'dispatch')
+        self.assertEqual(control_action['action'], 'settle')
+        self.assertFalse(control_action['parked'])
+        self.assertFalse(control_action.get('insertions'), 'nothing crossed, nothing inserted')
         self.assertEqual(normalise(control_action), normalise(configured_action),
                          'a line that is not crossed must change nothing at all')
-        self.assertEqual(configured.current_node(), NODE2, 'the close still pins its own pick')
+        self.assertIsNone(configured.current_node(), 'a settle claims nothing')
+        self.assertIsNone(control.current_node(), 'a settle claims nothing here either')
         self.assertEqual(len(configured.dag()['nodes']), 2, 'no node was inserted')
 
         for rel in ('.superworker/ideas.json', '.superworker/state.json'):
@@ -400,10 +403,13 @@ class ChannelCases:
         """
         sb = coding_line(self, self.DEBT, value=None)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual(action['node_id'], NODE2)
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'])
+        self.assertFalse(action.get('insertions'), 'nothing crossed, nothing inserted')
+        self.assertEqual(sb.advance()['plan']['node_id'], NODE2,
+                         'the ordinary step did not pick the node the close had')
         self.assertEqual(len(sb.dag()['nodes']), 2)
 
     def test_a_number_under_the_line_inserts_nothing(self):
@@ -411,10 +417,13 @@ class ChannelCases:
         number pressed below it."""
         sb = coding_line(self, self.DEBT, value=self.DEBT.under)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual(action['node_id'], NODE2)
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'])
+        self.assertFalse(action.get('insertions'), 'nothing crossed, nothing inserted')
+        self.assertEqual(sb.advance()['plan']['node_id'], NODE2,
+                         'the ordinary step did not pick the node the close had')
         self.assertEqual(sb.current_node(), NODE2)
         self.assertEqual(len(sb.dag()['nodes']), 2, 'nothing crossed, nothing inserted')
         self.assertEqual(sb.path_nodes(), [NODE])
@@ -433,11 +442,11 @@ class ChannelCases:
         """
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         nodes = sb.dag()['nodes']
         self.assertEqual(len(nodes), 3, 'the debt node was not inserted')
-        made = action['node_id']
+        made = action['inserted_node']
         self.assertNotIn(made, (NODE, NODE2))
 
         # the edges: old node -> debt node -> the original pick, and the old direct edge is gone
@@ -457,7 +466,8 @@ class ChannelCases:
         self.assertIn('coding', nodes[made]['tags'])
 
         # an insertion is not a dispatch: no prompt, and the hand stays where the close left it
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertNotIn('prompt', action)
         self.assertNotIn('prompt_text', action)
         self.assertEqual(sb.holding_ids(), [], 'an insertion must not pin a node')
@@ -472,9 +482,9 @@ class ChannelCases:
         """
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        made = action['node_id']
+        made = action['inserted_node']
         launch = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc'
         self.assertFalse((launch / made).exists(),
                          f'an insertion wrote a prompt file for {made}: {launch / made}')
@@ -493,9 +503,9 @@ class ChannelCases:
         """
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        made = action['node_id']
+        made = action['inserted_node']
         landed = Path(pipeline.nodes.node_spec_path(sb.root, made))
         self.assertTrue(landed.is_file(), f'{landed} is not where the writer said it would be')
         self.assertIn(f'(this spec lands at: {landed.as_posix()})',
@@ -527,22 +537,26 @@ class ChannelCases:
         sb.start_cycle(tags=['coding'])            # default parallel=1: the start pins one slot only
         sb.set_policy('cyc', 'parallel', 3)
         sb.set_policy('cyc', self.DEBT.line, self.DEBT.at)
-        sb.next()                                  # the dispatch for NODE
+        sb.advance()['plan']                                  # the dispatch for NODE
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         nodes = sb.dag()['nodes']
         self.assertEqual(len(nodes), 4, 'the debt node was not inserted')
-        made = action['node_id']
+        made = action['inserted_node']
         self.assertNotIn(made, (NODE, NODE2, NODE3))
         deferred = [u for u in (NODE2, NODE3) if nodes[u]['dependencies'] == [made]]
         self.assertEqual(len(deferred), 1, 'exactly one fill node waits behind the debt node')
         keep = [u for u in (NODE2, NODE3) if u != deferred[0]][0]
         self.assertEqual(nodes[keep]['dependencies'], [NODE], 'the rest of the fill is untouched')
         self.assertEqual(nodes[keep]['status'], 'todo')
-        self.assertEqual(sb.holding_ids(), [keep],
-                         'the rest of the fill keeps its slot, and the inserted node takes none')
+        self.assertEqual(sb.holding_ids(), [],
+                         'a settle claims nothing -- the fill is the next advance step')
+        claimed = sb.advance()['pinned']
+        self.assertIn(keep, claimed, 'the rest of the fill is in the ranking the advance reads')
+        self.assertEqual(nodes[deferred[0]]['status'], 'todo',
+                         'the node the insertion deferred still waits in the graph')
 
     def test_the_inserted_node_carries_why_what_scope_and_a_mechanical_verdict(self):
         """The debt node's spec is generated by the plugin: why it was inserted, the scope of this
@@ -554,8 +568,8 @@ class ChannelCases:
         """
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
 
-        action = sb.close_round(NODE)
-        made = action['node_id']
+        action = sb.settle(NODE)
+        made = action['inserted_node']
         spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         node = sb.dag()['nodes'][made]
 
@@ -594,24 +608,25 @@ class ChannelCases:
         close read is the one that counts -- so the node has to say which knob that was.
         """
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
-        action = sb.close_round(NODE)
-        made = action['node_id']
+        action = sb.settle(NODE)
+        made = action['inserted_node']
         spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
 
         self.assertEqual(len(sb.dag()['nodes']), 3)
         self.assertIn('the line in force for this close', spec)
         self.assertIn(f'**{self.DEBT.shown(self.DEBT.at)}**', spec)
         self.assertIn(f'(the `{self.DEBT.line}` knob', spec)
+        offered = action['insertions'][0]['note']
         self.assertIn(f'over the line {self.DEBT.shown(self.DEBT.at)} in force for this close',
-                      action['note'])
-        self.assertIn(f'(the `{self.DEBT.line}` knob)', action['note'])
+                      offered)
+        self.assertIn(f'(the `{self.DEBT.line}` knob)', offered)
 
     def test_the_number_exactly_on_the_line_is_over_it(self):
         """The line is the last acceptable number: the moment the number lands exactly on it, the
         debt is already at its limit."""
         sb = coding_line(self, self.DEBT, value=self.DEBT.exact)
 
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
         self.assertEqual(len(sb.dag()['nodes']), 3)
 
@@ -623,10 +638,10 @@ class ChannelCases:
         runs next is a decision of the picking rules -- not of whoever inserted it.
         """
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
-        inserted = sb.close_round(NODE)
-        made = inserted['node_id']
+        inserted = sb.settle(NODE)
+        made = inserted['inserted_node']
 
-        again = sb.next()
+        again = sb.advance()['plan']
 
         self.assertEqual(again['action'], 'dispatch')
         self.assertEqual(again['node_id'], made)
@@ -679,7 +694,7 @@ class SwitchCases:
                 set_config(sb, self.DEBT.switch, value, '--node', NODE)
             else:
                 set_config(sb, self.DEBT.switch, value)
-        sb.next()                                  # the dispatch for NODE
+        sb.advance()['plan']                                  # the dispatch for NODE
         self.DEBT.report(sb, NODE, self.DEBT.over)
         return sb
 
@@ -687,17 +702,21 @@ class SwitchCases:
         """It was inserted: the graph grew a node, the two edges are wired right, no hand moved."""
         nodes = sb.dag()['nodes']
         self.assertEqual(len(nodes), 3, 'the debt node was not inserted')
-        made = action['node_id']
+        made = action['inserted_node']
         self.assertNotIn(made, (NODE, NODE2))
         self.assertEqual(nodes[made]['dependencies'], [NODE])
         self.assertEqual(nodes[NODE2]['dependencies'], [made])
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertEqual(sb.holding_ids(), [], 'an insertion pins nothing')
 
     def assert_not_inserted(self, sb, action):
         """Not inserted: the close walks its original pick as usual, and the graph grows nothing."""
-        self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual(action['node_id'], NODE2)
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'])
+        self.assertFalse(action.get('insertions'), 'nothing crossed, nothing inserted')
+        self.assertEqual(sb.advance()['plan']['node_id'], NODE2,
+                         'the ordinary step did not pick the node the close had')
         self.assertEqual(sb.current_node(), NODE2)
         self.assertEqual(sb.path_nodes(), [NODE])
         self.assertEqual(len(sb.dag()['nodes']), 2, 'nothing may be inserted')
@@ -711,7 +730,7 @@ class SwitchCases:
 
         self.assertEqual(pipeline.resolve_knob(sb.root, self.DEBT.switch, cycle=sb.cycle(), node=NODE),
                          'on')
-        self.assert_inserted(sb, sb.close_round(NODE))
+        self.assert_inserted(sb, sb.settle(NODE))
 
     def test_the_knob_is_the_one_the_declaration_names(self):
         """The name, the kind and the factory value all come out of the declaration: there is no
@@ -740,7 +759,7 @@ class SwitchCases:
         self.assertEqual(pipeline.resolve_knob(sb.root, self.DEBT.switch, cycle=sb.cycle(), node=NODE),
                          'off')
         self.assertEqual(close_offers(sb), [], 'the switch must shut the judgement')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         self.assert_not_inserted(sb, action)
 
@@ -750,7 +769,7 @@ class SwitchCases:
         sb = self.crossed_line(layer='global', value='off')
 
         self.assertEqual(pipeline.knob_sources(sb.root, cycle=sb.cycle())[self.DEBT.switch], 'global')
-        self.assert_not_inserted(sb, sb.close_round(NODE))
+        self.assert_not_inserted(sb, sb.settle(NODE))
 
     def test_the_cycle_layer_can_turn_it_off(self):
         """The line is a layer of its own: `cycle policy cyc <knob> off` shuts this line only, and the
@@ -759,7 +778,7 @@ class SwitchCases:
 
         sources = pipeline.knob_sources(sb.root, cycle=sb.cycle(), node=NODE)
         self.assertEqual(sources[self.DEBT.switch], 'cycle')
-        self.assert_not_inserted(sb, sb.close_round(NODE))
+        self.assert_not_inserted(sb, sb.settle(NODE))
 
     def test_the_node_layer_can_turn_it_off(self):
         """The narrowest layer wins: one node's own `config.json` says `off`, and that node's close
@@ -771,7 +790,7 @@ class SwitchCases:
                          {self.DEBT.switch: 'off'})
         sources = pipeline.knob_sources(sb.root, cycle=sb.cycle(), node=NODE)
         self.assertEqual(sources[self.DEBT.switch], 'node')
-        self.assert_not_inserted(sb, sb.close_round(NODE))
+        self.assert_not_inserted(sb, sb.settle(NODE))
 
     def test_the_project_layer_beats_the_global_one(self):
         """The project layer beats the global one: the global layer is off, the project writes `on`,
@@ -781,7 +800,7 @@ class SwitchCases:
 
         self.assertEqual(pipeline.resolve_knob(sb.root, self.DEBT.switch, cycle=sb.cycle(), node=NODE),
                          'on')
-        self.assert_inserted(sb, sb.close_round(NODE))
+        self.assert_inserted(sb, sb.settle(NODE))
 
 
 @requires_plugin(TICKET.plugin)
@@ -835,16 +854,17 @@ class ThresholdCases:
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
         set_config(sb, self.DEBT.line, self.DEBT.at)     # the project layer, not `cycle policy`
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
         sources = pipeline.knob_sources(sb.root, cycle=sb.cycle())
         self.assertEqual(sources[self.DEBT.line], 'project')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertEqual(len(sb.dag()['nodes']), 3)
-        self.assertIn(f'(the `{self.DEBT.line}` knob', action['note'])
+        self.assertIn(f'(the `{self.DEBT.line}` knob', action['insertions'][0]['note'])
 
     def test_a_wider_layer_is_overridden_by_the_line(self):
         """Narrow beats wide: the project states a much wider line, the line states its own, and the
@@ -855,15 +875,17 @@ class ThresholdCases:
         sb.start_cycle(tags=['coding'])
         set_config(sb, self.DEBT.line, self.DEBT.at * 3)
         sb.set_policy('cyc', self.DEBT.line, self.DEBT.at)
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
         self.assertEqual(pipeline.resolve_knob(sb.root, self.DEBT.line, cycle=sb.cycle()),
                          self.DEBT.at)
-        action = sb.close_round(NODE)              # over the line the close read
+        action = sb.settle(NODE)              # over the line the close read
 
-        self.assertEqual(action['action'], 'insert_node')
-        self.assertIn(f'over the line {self.DEBT.shown(self.DEBT.at)}', action['note'])
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
+        self.assertIn(f'over the line {self.DEBT.shown(self.DEBT.at)}',
+                      action['insertions'][0]['note'])
 
 
 @requires_plugin(TICKET.plugin)
@@ -891,7 +913,7 @@ class ScopeCases:
         sb.add_node(NODE2, 'Write copy 2', mode='auto', tags=['writing'], deps=[NODE])
         sb.start_cycle(tags=['writing'])
         sb.set_policy('cyc', self.DEBT.line, 1)
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
         # the number and the line are both in hand and the crossing counts: the reason for doing
@@ -899,10 +921,13 @@ class ScopeCases:
         self.assertEqual(pipeline.resolve_knob(sb.root, self.DEBT.line, cycle=sb.cycle()), 1)
         self.assertEqual(close_offers(sb), [])
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual(action['node_id'], NODE2)
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'])
+        self.assertFalse(action.get('insertions'), 'nothing crossed, nothing inserted')
+        self.assertEqual(sb.advance()['plan']['node_id'], NODE2,
+                         'the ordinary step did not pick the node the close had')
         self.assertEqual(len(sb.dag()['nodes']), 2)
 
 
@@ -930,10 +955,11 @@ class TestTicketScope(ScopeCases, Base):
             return real(argv, cwd)
 
         with patched(pipeline, '_capture', spy):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
         asked = [' '.join(call) for call in calls]
-        self.assertEqual(action['action'], 'insert_node', action)
+        self.assertEqual(action['action'], 'settle', action)
+        self.assertTrue(action.get('insertions'), action)
         self.assertEqual(len(sb.dag()['nodes']), 3, 'the crossing did not insert')
         self.assertEqual([text for text in asked if ISSUE_MANAGE.name in text], [],
                          'the test line asked the pool tool for its number')
@@ -955,7 +981,7 @@ class TestPoolScope(ScopeCases, Base):
         sb.add_node(NODE, 'Write code A', mode='auto', tags=['coding'])
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, None)           # the ticket carries nothing, as always
         self.DEBT.repay(sb, self.DEBT.under)       # the pool is in hand, but no line is configured
 
@@ -987,8 +1013,8 @@ class TestPoolScope(ScopeCases, Base):
         only, so the pool's spec carries no such slot."""
         sb = coding_line(self, POOL, value=POOL.over)
 
-        action = sb.close_round(NODE)
-        made = action['node_id']
+        action = sb.settle(NODE)
+        made = action['inserted_node']
         spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
 
         self.assertIn('`sw issue weight`', spec)
@@ -1006,21 +1032,23 @@ class DedupCases:
         """While a debt node is still in play (`todo`), the same metric crossing again inserts nothing
         more -- the fixer is one."""
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
-        first = sb.close_round(NODE)
-        self.assertEqual(first['action'], 'insert_node')
-        made = first['node_id']
+        first = sb.settle(NODE)
+        self.assertEqual(first['action'], 'settle')
+        self.assertTrue(first.get('insertions'), first)
+        made = first['inserted_node']
         self.assertNotIn(made, (NODE, NODE2))
         self.assertEqual(sb.node(made)['status'], 'todo')
 
         # the next dispatch is what pins it; then its own close reports another over-the-line number:
         # no second insert, and the close walks on.
-        sb.next()
+        sb.advance()['plan']
         self.assertEqual(sb.holding_ids(), [made])
         self.DEBT.report(sb, made, self.DEBT.over)
-        second = sb.close_round(made)
-        self.assertEqual(second['action'], 'dispatch')
+        second = sb.settle(made)
+        self.assertEqual(second['action'], 'settle')
+        self.assertFalse(second['parked'])
         self.assertEqual(len(sb.dag()['nodes']), 3, 'a second debt node was inserted')
-        self.assertEqual(sb.current_node(), NODE2, 'the deferred pick still came next')
+        self.assertEqual(sb.advance()['pinned'], [NODE2], 'the deferred pick still came next')
 
     def test_a_finished_debt_node_frees_the_metric_again(self):
         """The debt node is delivered (`completed`) with the number back under the line, and the debt
@@ -1031,34 +1059,39 @@ class DedupCases:
         sb.add_node(NODE3, 'Write code C', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', self.DEBT.line, self.DEBT.at)
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
         # walk one slot at a time (parallel pressed to 1 first): each close advances only its own node,
         # so the judgements after it are legible.
         sb.set_policy('cyc', 'parallel', 1)
-        first = sb.close_round(NODE)
-        made = first['node_id']
+        first = sb.settle(NODE)
+        made = first['inserted_node']
         self.assertNotIn(made, (NODE, NODE2))
 
         # the debt node ran and repaid the debt -> its work is delivered and this metric is
         # insertable again
-        sb.next()                                  # the dispatch that pins what the insertion created
+        sb.advance()['plan']                                  # the dispatch that pins what the insertion created
         self.assertEqual(sb.holding_ids(), [made])
         self.DEBT.report(sb, made, self.DEBT.under)
-        sb.close_round(made)
-        sb.set_current_node(NODE2)
+        sb.settle(made)
+        sb.hold(NODE2)
         # further on, another node reports another over-the-line number: the debt stands, so it must
         # come in for one more pass
         self.DEBT.report(sb, NODE2, self.DEBT.over)
-        sb.close_round(NODE2)
-        self.assertEqual(len(sb.dag()['nodes']), 4,
+        sb.settle(NODE2)
+        # three base nodes, and one debt node per crossing: the first close inserted one, and a
+        # repaid metric that crosses again inserts a fresh one rather than reusing the finished one.
+        self.assertEqual(len(sb.dag()['nodes']), 5,
                          'a repaid metric that crosses again must insert a fresh node')
+        debts = [n for n in sb.dag()['nodes'].values() if self.DEBT.tag in (n.get('tags') or [])]
+        self.assertEqual(len(debts), 2, f'the repayment did not free the metric: {debts}')
+        self.assertEqual(sorted(n['status'] for n in debts), ['completed', 'todo'])
 
     def test_the_insert_lands_after_the_node_is_closed(self):
         """The order of the graph edit: the old node is marked first, only then is the debt node
         created -- the dedup graph read must not count the node just delivered as still in play."""
         sb = coding_line(self, self.DEBT, value=self.DEBT.over)
-        sb.close_round(NODE)
+        sb.settle(NODE)
         self.assertEqual(sb.node(NODE)['status'], 'completed')
         self.assertEqual(sb.path_nodes(), [NODE])
 
@@ -1072,13 +1105,14 @@ class DedupCases:
                     status='shelved', tags=[self.DEBT.tag])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', self.DEBT.line, self.DEBT.at)
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'insert_node',
-                         'a shelved debt node must not hold the metric')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'),
+                        'a shelved debt node must not hold the metric')
         self.assertEqual(len(sb.dag()['nodes']), 4)
 
     def test_the_switch_has_no_second_table_of_its_own(self):
@@ -1165,7 +1199,7 @@ class TestTheTwoLinesInOneClose(Base):
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', TICKET.line, TICKET.at)
         sb.set_policy('cyc', POOL.line, POOL.at)
-        sb.next()                                  # the dispatch for NODE
+        sb.advance()['plan']                                  # the dispatch for NODE
         POOL.repay(sb, pool)
         TICKET.report(sb, NODE, ticket)
         return sb
@@ -1183,10 +1217,11 @@ class TestTheTwoLinesInOneClose(Base):
         changed when the two debts left the one folder they used to share."""
         sb = self.both_lines(ticket=TICKET.over, pool=POOL.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         nodes = sb.dag()['nodes']
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         made = self.landed(sb, action)
         self.assertEqual(2, len(action['insertions']),
                          f'one plugin per crossing: {action.get("insertions")}')
@@ -1258,11 +1293,12 @@ class TestTheTwoLinesInOneClose(Base):
         lands exactly what crossed."""
         sb = self.both_lines(ticket=TICKET.over, pool=POOL.under)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         nodes = sb.dag()['nodes']
         made = [uid for uid in nodes if uid not in (NODE, NODE2)]
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertEqual(1, len(made), f'only one line crossed: {action}')
         self.assertIn(TICKET.tag, nodes[made[0]]['tags'])
         self.assertNotIn(POOL.tag, nodes[made[0]]['tags'])
@@ -1273,11 +1309,12 @@ class TestTheTwoLinesInOneClose(Base):
         the ticket's is under its own, and one node lands."""
         sb = self.both_lines(ticket=TICKET.under, pool=POOL.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         nodes = sb.dag()['nodes']
         made = [uid for uid in nodes if uid not in (NODE, NODE2)]
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertEqual(1, len(made), f'only one line crossed: {action}')
         self.assertIn(POOL.tag, nodes[made[0]]['tags'])
         self.assertNotIn(TICKET.tag, nodes[made[0]]['tags'])
@@ -1295,7 +1332,7 @@ class TestTheTwoLinesInOneClose(Base):
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', kept.line, kept.at)
-        sb.next()                                  # the dispatch for NODE
+        sb.advance()['plan']                                  # the dispatch for NODE
         POOL.repay(sb, POOL.over)
         TICKET.report(sb, NODE, TICKET.over)
         return sb
@@ -1309,10 +1346,11 @@ class TestTheTwoLinesInOneClose(Base):
         """
         sb = self.one_folder(kept)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         nodes = sb.dag()['nodes']
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         made = [uid for uid in nodes if uid not in (NODE, NODE2)]
         self.assertEqual(1, len(made),
                          f'only the installed plugin may insert: {action}')
@@ -1324,7 +1362,7 @@ class TestTheTwoLinesInOneClose(Base):
         self.assertEqual('completed', nodes[NODE]['status'])
         self.assertEqual([], sb.holding_ids())
 
-        again = sb.next()
+        again = sb.advance()['plan']
 
         self.assertEqual(again['action'], 'dispatch', 'the line stopped where it always went on')
         self.assertEqual(again['node_id'], made[0])

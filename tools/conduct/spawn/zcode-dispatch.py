@@ -77,7 +77,7 @@ MISFIRE_GRACE_MS = 5 * 60 * 1000
 #: A session younger than this blocks a second queue for the same node: the one real double-session
 #: is a verify race (the row was claimed and the session exists, but the waiter gave up just before
 #: it appeared) and that window is one poll interval wide. Anything older is fair game for a
-#: documented retry (`cycle retry` + `cycle hold` + `next --spawn`).
+#: documented retry (`cycle retry` + `hold` + `advance`).
 SESSION_FRESH_MS = 10 * 60 * 1000
 
 #: The desktop's data root; `ZCODE_DATA_BASE_DIR` moves the whole tree, the same knob the CLI's own

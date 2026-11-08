@@ -1,9 +1,9 @@
-"""The node: what one cycle step IS, and the closing call that ends it.
+"""The node: what one cycle step IS, and the settle that ends it.
 
 Everything here is about the surviving shape, in the terms the model is stated in: `state.json`
 holds the whole cycle (there is no per-round file and no second pointer), one node's work is done
 when its terminal signal is on disk, the DAG's node status is the single source of truth for "did
-it succeed", and the only thing that ends a step is the worker's own `next --after <node>`.
+it succeed", and the only thing that ends a step is the worker's own `sw settle <node>`.
 """
 
 from __future__ import annotations
@@ -18,8 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cases_base import NODE, NODE2, NODE3, Base, pipeline, skill_of  # noqa: E402
 from cases_maintenance import POOL, TICKET  # noqa: E402
-from harness import (CONDUCT_DIR, Closer, Driver, WorkerSession,  # noqa: E402
-                     _dag_hook, requires_plugin, stop_after)
+from harness import CONDUCT_DIR, Driver, WorkerSession, _dag_hook, requires_plugin  # noqa: E402
 
 #: The implementation package's own directory. `graph_readers` recognizes "a caller inside the
 #: package" by the stack frame's **directory**, not by a substring of the file name: the paths of the
@@ -32,9 +31,9 @@ _IMPL_DIR = CONDUCT_DIR / 'pipeline'
 class TestNodeShape(Base):
     """One node = one cycle step = one session, recorded in the cycle itself."""
 
-    def test_a_pinned_cycle_dispatches_one_pf_conduct_session(self):
+    def test_a_pinned_cycle_dispatches_one_sw_conduct_session(self):
         sb = self.ready_sandbox()
-        action = sb.next()
+        action = sb.advance()['plan']
 
         self.assertEqual(action['action'], 'dispatch')
         self.assertEqual(skill_of(action), 'sw-conduct')
@@ -47,7 +46,7 @@ class TestNodeShape(Base):
     def test_the_cycle_record_holds_the_whole_cycle(self):
         """`state.json` and nothing else: no `loops/`, no per-round file, no second pointer."""
         sb = self.ready_sandbox()
-        sb.next()
+        sb.advance()
         cycle = sb.cycle()
 
         self.assertEqual([h['id'] for h in cycle['holding']], [NODE])
@@ -67,42 +66,42 @@ class TestNodeShape(Base):
     def test_the_node_is_recorded_when_the_step_opens_not_when_it_reports(self):
         """That is what lets a human add nodes mid-run without steering the step in flight."""
         sb = self.ready_sandbox()
-        sb.next()
+        sb.advance()
         sb.add_node(NODE2, 'a node added mid-run', mode='auto')
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
         self.assertEqual(sb.current_node(), NODE)
-        self.assertEqual(sb.next()['node_id'], NODE)
+        self.assertEqual(sb.plan()['node_id'], NODE)
 
-    def test_only_the_workers_own_close_ends_a_step(self):
-        """With the ticket on disk and no closing call, the step is open -- stably, and for as
-        many times as `next` is asked. A tool that closed it here would drop the worker's own
-        answer on the floor."""
+    def test_only_the_workers_own_settle_ends_a_step(self):
+        """With the ticket on disk and no settle, the step is open -- stably, and for as many times
+        as `plan` is asked. A tool that closed it here would drop the worker's own answer on the
+        floor."""
         sb = self.ready_sandbox()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
-        first = sb.next()
+        first = sb.plan()
         self.assertEqual(first['action'], 'wait')
-        self.assertIn('--after', first['close_with'])
+        self.assertIn('settle', first['close_with'])
         self.assertIn(NODE, first['close_with'])
         self.assertEqual(sb.current_node(), NODE)
         self.assertEqual(sb.path(), [])
 
         # asked again: same answer, and nothing on disk moved
         before = sb.tree_hashes()
-        again = sb.next()
+        again = sb.plan()
         self.assertEqual(again['action'], 'wait')
         self.assertEqual(again['close_with'], first['close_with'])
         self.assertEqual(sb.tree_hashes(), before)
 
-    def test_the_close_appends_one_path_step_and_clears_the_pointer(self):
+    def test_the_settle_appends_one_path_step_and_clears_the_hand(self):
         sb = self.ready_sandbox()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertNotEqual(action['action'], 'wait')
+        self.assertEqual(action['action'], 'settle')
         path = sb.path()
         self.assertEqual(len(path), 1)
         self.assertEqual(path[0]['node'], NODE)
@@ -111,18 +110,19 @@ class TestNodeShape(Base):
         self.assertIsNone(sb.current_node())
         self.assertEqual(sb.dag_status(NODE), 'completed')
 
-    def test_the_signal_stays_on_disk_after_the_close(self):
-        """The ticket is the evidence that the node was attempted; closing is not deleting."""
+    def test_the_signal_stays_on_disk_after_the_settle(self):
+        """The ticket is the evidence that the node was attempted; settling is not deleting."""
         sb = self.ready_sandbox()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
         self.assertEqual(sb.read_signal('cyc', NODE)['status'], 'completed')
 
 
 class TestSettleAndClose(Base):
-    """`next --after <node>`: the worker's own closing call, and what it decides."""
+    """`sw settle <node>`: the worker's own closing call, and what it decides -- nothing but the
+    record."""
 
     def pinned(self, extra_nodes=1):
         """A cycle pinned on NODE, with a ticket written by its worker."""
@@ -133,46 +133,59 @@ class TestSettleAndClose(Base):
         """The signal IS the outcome. There is no verdict to ask for and nobody to ask."""
         sb = self.pinned()
         sb.write_signal('cyc', NODE, 'completed', 'sw-conduct finished')
-        waiting = sb.next()
+        waiting = sb.plan()
 
         self.assertEqual(waiting['action'], 'wait')
         self.assertEqual(waiting['node_id'], NODE)
         self.assertIn(NODE, waiting['close_with'])
-        self.assertIn('--after', waiting['close_with'])
+        self.assertIn('settle', waiting['close_with'])
 
-    def test_a_pass_closes_the_node_and_points_the_cycle_at_the_next_one(self):
+    def test_a_pass_closes_the_node_and_the_next_advance_claims_the_next_one(self):
+        """A settle records one node's end and pins nothing: the next round is `advance`, and its
+        claim is what points the line at the node behind it."""
         sb = self.pinned(extra_nodes=1)
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'])
         self.assertEqual(sb.path_nodes(), [NODE])
         self.assertEqual(sb.dag_status(NODE), 'completed')
+        self.assertIsNone(sb.current_node(), 'the settle pinned a successor')
+
+        receipt = sb.advance()
+
+        self.assertEqual(receipt['pinned'], [NODE2])
+        self.assertEqual(receipt['plan']['action'], 'dispatch')
+        self.assertEqual(receipt['plan']['node_id'], NODE2)
         self.assertEqual(sb.current_node(), NODE2)
-        # the closing call's own answer is the next node's dispatch, or the walk on to it
-        self.assertIn(action['action'], ('dispatch', 'open_node', 'wait'))
-        if action['action'] == 'dispatch':
-            self.assertEqual(action['node_id'], NODE2)
 
-    def test_a_stop_parks_a_cycle_that_still_has_work(self):
+    def test_a_non_delivery_stop_parks_a_line_that_still_has_work(self):
+        """The stop rule is the plan's alone: a `when_shelved=stop` line parks on a node that did not
+        deliver even though the graph still holds ready work."""
         sb = self.pinned(extra_nodes=1)
-        sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE, decision='stop')
+        sb.write_signal('cyc', NODE, 'failed', 'nothing delivered')
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
-        self.assertEqual(sb.dag_status(NODE), 'completed')
-        self.assertIsNone(sb.current_node(), 'the step that was closed is over, stop or not')
+        self.assertEqual(sb.dag_status(NODE), 'shelved')
+        self.assertIsNone(sb.current_node(), 'the step that was settled is over, parked or not')
         self.assertEqual(sb.path_nodes(), [NODE])
 
     def test_a_stop_on_the_last_node_writes_the_same_status(self):
         """Stopping has one word to write: `inactive`. "Is there work left in the graph" asks about
         the graph at that moment, and a graph grows -- whether a stopped line should run on is a
         human's call."""
-        sb = self.pinned(extra_nodes=0)
+        sb = self.make()
+        sb.add_node(NODE, 'UI design', mode='checkpoint')
+        sb.start_cycle()
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE, decision='stop')
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
 
     def test_a_non_delivery_goes_shelved_in_the_dag_and_the_cycle_goes_inactive(self):
@@ -181,22 +194,33 @@ class TestSettleAndClose(Base):
         the ticket says why in the worker's own words, and the run stops for a human."""
         sb = self.pinned()
         sb.write_signal('cyc', NODE, 'failed', 'I produced nothing')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertEqual(action['result'], 'failed')
+        self.assertEqual(action['graph'], 'shelved')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.dag_status(NODE), 'shelved')
         self.assertEqual(sb.path()[0]['result'], 'failed')
         self.assertEqual(sb.cycle()['status'], 'inactive')
         self.assertEqual(sb.read_signal('cyc', NODE)['summary'], 'I produced nothing')
-        self.assertIn('did not deliver', action.get('reason', ''))
+        self.assertIn('did not deliver', action.get('note', ''))
 
-    def test_a_non_delivery_stops_even_if_the_close_said_continue(self):
-        """The outcome is read off the ticket, so a `--continue` cannot launder a failure."""
+    def test_no_flag_can_loosen_a_non_delivery(self):
+        """The old closing call took a `--continue` / `--stop` answer a caller could contradict the
+        rule with. The settle takes none: the shipped surface refuses the flag outright, and the
+        node's ticket is the only voice."""
         sb = self.pinned()
         sb.write_signal('cyc', NODE, 'failed', 'nothing delivered')
-        action = sb.close_round(NODE, decision='continue')
+        before = sb.tree_hashes()
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        _action, proc = sb.settle_cli(NODE, '--continue', check=False)
+
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn('--continue', proc.stderr)
+        self.assertEqual(sb.tree_hashes(), before, 'a refused flag still wrote something')
+        action = sb.settle(NODE)
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.dag_status(NODE), 'shelved')
 
     def test_stopped_parks_the_node_and_stops_the_run(self):
@@ -204,38 +228,48 @@ class TestSettleAndClose(Base):
         parked in the DAG (`shelved`) and the line stops. The step records the word the ticket used."""
         sb = self.pinned()
         sb.write_signal('cyc', NODE, 'stopped', 'the user stopped it')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertIn(sb.path()[0]['result'], ('stopped', 'failed'))
         self.assertEqual(sb.dag_status(NODE), 'shelved', 'a non-delivery parked the node')
         self.assertEqual(sb.cycle()['status'], 'inactive')
 
-    def test_the_close_can_pick_the_next_node(self):
+    def test_the_settle_pins_no_successor(self):
+        """A settle is not an advance: the node that runs next is the next `advance`'s own claim, and
+        a settle that pinned one would be the composed word wearing a plain word's name."""
         sb = self.pinned(extra_nodes=1)
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE, node=NODE2)
+        action = sb.settle(NODE)
 
-        self.assertEqual(sb.current_node(), NODE2)
-        self.assertIn(action['action'], ('dispatch', 'open_node', 'wait'))
+        self.assertEqual(action['action'], 'settle')
+        self.assertEqual(sb.holding_ids(), [], 'the settle claimed a node')
+        self.assertEqual(sorted(sb.dag()['nodes']), sorted([NODE, NODE2]),
+                         'the settle opened a node the plan would have picked')
 
-    def test_a_node_the_close_names_but_that_is_not_ready_stops(self):
-        """Naming a node nobody can run is the owner's mistake, not a reason to substitute one."""
+    def test_naming_a_node_is_not_a_lever_on_the_settle(self):
+        """`--node` used to aim the close at a successor; it is gone from every writing word, and the
+        shipped surface refuses it rather than ignoring it."""
         sb = self.pinned(extra_nodes=1)
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE, node='nope-0000-4000-8000-000000000000')
+        before = sb.tree_hashes()
 
-        self.assertEqual(action['action'], 'stop_pipeline')
-        self.assertIn('nope-0000-4000-8000-000000000000', action['reason'])
-        self.assertIsNone(sb.current_node())
+        _action, proc = sb.settle_cli(NODE, '--node', NODE2, check=False)
+
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn('--node', proc.stderr)
+        self.assertEqual(sb.tree_hashes(), before)
 
     def test_the_next_pick_excludes_the_node_the_step_just_ran(self):
-        """The step's own node is finished, so it can never be picked again by the same close."""
+        """The step's own node is finished, so it can never be picked again by the next advance."""
         sb = self.pinned(extra_nodes=1)
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        sb.close_round(NODE)
+        sb.settle(NODE)
+        receipt = sb.advance()
 
         self.assertEqual(sb.path_nodes(), [NODE])
+        self.assertEqual(receipt['pinned'], [NODE2])
         self.assertEqual(sb.current_node(), NODE2)
 
 
@@ -245,7 +279,11 @@ class TestStopRule(Base):
     **Whether to carry on depends on the node's own mode alone**: `checkpoint` stops at the closing
     beat and hands back to a human; `manual`'s gate is in the slot's session (the whole slot moves
     back and forth with the user, and the note's `completed` is the user's "mark it done, carry on"),
-    so it carries on like `auto` after the close; this one judgement has this one source.
+    so it carries on like `auto` after the settle; this one judgement has this one source, and the
+    settle takes no answer that could contradict it.
+
+    A run ends at the settle that parks the line (`parked`), because nothing else moves by itself
+    after that.
     """
 
     def test_auto_carries_on_to_the_node_behind_it(self):
@@ -257,7 +295,8 @@ class TestStopRule(Base):
         sb.start_cycle()
         final, driver = self.run_to_stop(sb)
 
-        self.assertEqual(final['action'], 'stop_pipeline')
+        self.assertEqual(final['action'], 'settle')
+        self.assertTrue(final['parked'])
         self.assertEqual(len(driver.dispatched), 2, 'both nodes were dispatched')
         self.assertEqual(sb.path_nodes(), [NODE, NODE2])
 
@@ -271,7 +310,8 @@ class TestStopRule(Base):
         sb.start_cycle()
         final, driver = self.run_to_stop(sb)
 
-        self.assertEqual(final['action'], 'stop_pipeline')
+        self.assertEqual(final['action'], 'settle')
+        self.assertTrue(final['parked'])
         self.assertEqual(sb.path_nodes(), [NODE, NODE2])
         self.assertEqual(len(driver.dispatched), 2)
 
@@ -279,7 +319,7 @@ class TestStopRule(Base):
         """The middle tier: one round of the cycle runs, the record closes clean, then it stops and
         waits for a human to say "carry on".
 
-        The only difference from `auto` is one place -- the close does not open the next node
+        The only difference from `auto` is one place -- the settle does not open the next node
         itself; inside a node the run is exactly the same.
         """
         sb = self.make()
@@ -288,30 +328,37 @@ class TestStopRule(Base):
         sb.start_cycle()
         final, driver = self.run_to_stop(sb)
 
-        self.assertEqual(final['action'], 'stop_pipeline')
+        self.assertEqual(final['action'], 'settle')
+        self.assertTrue(final['parked'], 'the checkpoint gate did not park the line')
         self.assertEqual(sb.path_nodes(), [NODE], 'this node was handed back')
         self.assertEqual(sb.dag_status(NODE), 'completed')
         self.assertEqual(len(driver.dispatched), 1, 'the next node was not opened')
         self.assertEqual(sb.dag_status(NODE2), 'todo')
-        self.assertIn('checkpoint', final['reason'])
+        self.assertIn('checkpoint', final['note'])
         self.assertEqual(sb.cycle()['status'], 'inactive',
                          'stopping turns the line inactive; the command that puts it back in '
-                         'service is in the reason')
-        self.assertIn('cycle status cyc active', final['reason'])
+                         'service is in the note')
+        self.assertIn('cycle status cyc active', final['note'])
 
-    def test_a_continue_cannot_loosen_the_stop_rule(self):
-        """The hole the rule exists to close: the closing call says carry on, the node's own mode
-        says hand back to the user. The rule wins, and the worker is told why."""
+    def test_the_stop_rule_has_no_lever_that_could_loosen_it(self):
+        """The hole the rule exists to close: a caller saying carry on while the node's own mode says
+        hand back to the user. There is no such answer any more (the old `--continue`), so the rule
+        is the only voice -- and the rehearsal says the same thing before anything is written."""
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='checkpoint')
         sb.add_node(NODE2, 'the next one', mode='auto', deps=[NODE])
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE, decision='continue')
 
-        self.assertEqual(action['action'], 'stop_pipeline')
-        self.assertIn('mode=checkpoint', action['reason'])
+        rehearsal = sb.plan(after=NODE)
+        self.assertEqual(rehearsal['action'], 'settle')
+        self.assertTrue(rehearsal['parked'], f'the rehearsal already stops: {rehearsal}')
+
+        action = sb.settle(NODE)
+        self.assertTrue(action['parked'])
+        self.assertIn('mode=checkpoint', action['note'])
+        self.assertEqual(sb.cycle()['status'], 'inactive')
 
     def test_a_boundary_instruction_can_tighten_it(self):
         sb = self.make()
@@ -320,30 +367,34 @@ class TestStopRule(Base):
         sb.instruct('stop after two nodes', scope='cycle', target='boundary', stop_after_nodes=2)
         final, _ = self.run_to_stop(sb)
 
-        self.assertEqual(final['action'], 'stop_pipeline')
+        self.assertEqual(final['action'], 'settle')
+        self.assertTrue(final['parked'])
         self.assertEqual(sb.path_nodes(), ids[:2])
         self.assertEqual(sb.dag_status(ids[2]), 'todo')
 
     def test_the_second_close_is_where_a_cap_of_two_stops(self):
-        """Stop after N: at the N-th close every one of them has already been delivered."""
+        """Stop after N: at the N-th settle every one of them has already been delivered."""
         sb = self.make()
-        ids = sb.add_chain(2)
+        ids = sb.add_chain(3)
         sb.start_cycle()
-        sb.instruct('stop after one', scope='cycle', target='boundary', stop_after_nodes=1)
+        sb.instruct('stop after two nodes', scope='cycle', target='boundary', stop_after_nodes=2)
         final, driver = self.run_to_stop(sb)
 
-        self.assertEqual(sb.path_nodes(), [ids[0]])
-        self.assertEqual(len(driver.dispatched), 1)
+        self.assertEqual(sb.path_nodes(), ids[:2])
+        self.assertEqual(len(driver.dispatched), 2)
+        self.assertTrue(final['parked'])
 
     def test_a_stop_after_nodes_one_means_one_node(self):
         """The v1 defect this pins: an off-by-one in the cap ran one node too many."""
         sb = self.make()
         ids = sb.add_chain(3)
         sb.start_cycle()
-        driver = Driver(sb, worker=WorkerSession(sb), closer=Closer(on_node=stop_after(1)))
+        sb.instruct('stop after one', scope='cycle', target='boundary', stop_after_nodes=1)
+        driver = Driver(sb, worker=WorkerSession(sb))
         final = driver.run()
 
-        self.assertEqual(final['action'], 'stop_pipeline')
+        self.assertEqual(final['action'], 'settle')
+        self.assertTrue(final['parked'])
         self.assertEqual(sb.path_nodes(), ids[:1])
 
 
@@ -368,7 +419,8 @@ class TestTheApprovalAtTheGate(Base):
     def test_releasing_the_line_approves_the_delivery_it_stopped_on(self):
         sb, action = self.parked_at_the_gate()
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.cycle()['status'], 'inactive', 'the gate parks the line')
         self.assertNotIn('approved_at', sb.node(NODE))
 
@@ -387,9 +439,10 @@ class TestTheApprovalAtTheGate(Base):
         as it is -- not one byte, its own moment included."""
         sb = self.ready_sandbox()
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
         before = sb.node(NODE)
 
@@ -418,9 +471,9 @@ class TestTheApprovalAtTheGate(Base):
         sb.add_node(NODE, 'UI design', mode='checkpoint')
         sb.add_node(NODE2, 'carry on', mode='auto', deps=[NODE])
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'failed', 'produced nothing')
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
         self.assertEqual(sb.dag_status(NODE), 'shelved')
         self.assertEqual(sb.cycle()['status'], 'inactive')
@@ -453,10 +506,11 @@ class TestTheApprovalAtTheGate(Base):
         sb.set_cycle_status('cyc', 'inactive')
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
-        self.assertIn('only records', action['reason'])
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'], 'a line out of service had its status written again')
+        self.assertIn('only records', action['note'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
         self.assertEqual(sb.dag_status(NODE), 'completed')
         self.assertNotIn('approved_at', sb.node(NODE))
@@ -477,10 +531,11 @@ class TestTheApprovalAtTheGate(Base):
         self.assertEqual(sorted(sb.holding_ids()), sorted([NODE, NODE2]))
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
-        self.assertIn('checkpoint', action['reason'])
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
+        self.assertIn('checkpoint', action['note'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
         self.assertEqual(sb.holding_ids(), [NODE2], 'the other node is still in hand')
 
@@ -493,7 +548,8 @@ class TestTheApprovalAtTheGate(Base):
 
 
 class TestAttention(Base):
-    """What a human has to look at travels with the stop package; nothing else can carry it."""
+    """What a human has to look at travels with the settle that parks the line; nothing else can
+    carry it."""
 
     def kinds(self, action):
         return [item['kind'] for item in action.get('attention', [])]
@@ -508,7 +564,7 @@ class TestAttention(Base):
         sb.start_cycle()
         final, _ = self.run_to_stop(sb)
 
-        self.assertEqual(final['action'], 'stop_pipeline')
+        self.assertEqual(final['action'], 'settle')
         parked = [i for i in final.get('attention', []) if i.get('kind') == 'node_shelved']
         self.assertEqual([i['node_id'] for i in parked
                           if sb.dag_status(i['node_id']) == 'shelved'], [])
@@ -522,15 +578,15 @@ class TestAttention(Base):
         sb.start_cycle()
         final, _ = self.run_to_stop(sb)
 
-        self.assertEqual(final['action'], 'stop_pipeline')
-        self.assertIn('mode=checkpoint', final['reason'])
+        self.assertEqual(final['action'], 'settle')
+        self.assertIn('mode=checkpoint', final['note'])
 
     def test_a_non_delivery_reaches_the_stop_package(self):
         """The worker's `failed` ticket is the verdict; what a human is handed is the node it left
         `shelved`, under `kind: node_shelved`."""
         sb = self.ready_sandbox()
         sb.write_signal('cyc', NODE, 'failed', 'a total failure')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         self.assertIn('node_shelved', self.kinds(action))
         entry = [i for i in action['attention'] if i['kind'] == 'node_shelved'][0]
@@ -545,24 +601,24 @@ class TestAttention(Base):
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.add_node(NODE2, 'another line', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'failed', 'produced nothing')
-        first = sb.close_round(NODE)
+        first = sb.settle(NODE)
         self.assertIn('node_shelved', self.kinds(first))
 
         # the human revives nothing; the line is put back in service by hand and walks the other node
         sb.set_cycle_status('cyc', 'active')
-        sb.set_current_node(NODE2)
+        sb.hold(NODE2)
         sb.write_signal('cyc', NODE2, 'completed', 'done')
-        second = sb.close_round(NODE2)
+        second = sb.settle(NODE2)
 
         self.assertIn('node_shelved', self.kinds(second))
         self.assertIn(NODE, [i.get('node_id') for i in second['attention']])
 
-    def test_the_plan_and_the_close_agree_on_what_happens_next(self):
-        """The planner is the closing call's own preview, and a terminal ticket is a stable state:
-        `plan` answers `wait` with the command that closes it, whatever the ticket says -- the
-        closing call is what turns it into an outcome."""
+    def test_the_plan_and_the_settle_agree_on_what_happens_next(self):
+        """The plan is the settle's own preview, and a terminal ticket is a stable state: `plan`
+        answers `wait` with the command that settles it, whatever the ticket says -- the settle is
+        what turns it into an outcome."""
         sb = self.ready_sandbox()
         sb.write_signal('cyc', NODE, 'completed', 'done')
         planned = sb.plan()
@@ -576,8 +632,9 @@ class TestAttention(Base):
         failed_plan = sb.plan()
         self.assertEqual(failed_plan['action'], 'wait')
 
-        applied = sb.close_round(NODE)
-        self.assertEqual(applied['action'], 'stop_pipeline')
+        applied = sb.settle(NODE)
+        self.assertEqual(applied['action'], 'settle')
+        self.assertTrue(applied['parked'])
         self.assertEqual(sb.dag_status(NODE), 'shelved')
         self.assertEqual([i['kind'] for i in applied['attention']], ['node_shelved'])
 
@@ -606,9 +663,10 @@ class TestShelvedPolicy(Base):
         self.assertNotIn('policies', sb.cycle())
 
         sb.write_signal('cyc', NODE, 'failed', 'produced nothing')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.dag_status(NODE), 'shelved')
         self.assertEqual(sb.cycle()['status'], 'inactive')
         self.assertIsNone(sb.current_node())
@@ -623,17 +681,18 @@ class TestShelvedPolicy(Base):
         self.assertEqual(sb.cycle()['policies'], {'when_shelved': 'continue'})
 
         sb.write_signal('cyc', NODE, 'failed', 'this one produced nothing')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         self.assertEqual(sb.dag_status(NODE), 'shelved', 'the node was parked')
         self.assertEqual(sb.path()[0]['result'], 'failed', 'the step keeps the ticket word')
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'], 'nothing could be filled, so the round is over')
         self.assertEqual(sb.dag_status(NODE2), 'todo', 'the dependent node ran anyway')
         self.assertIn(NODE, [i.get('node_id') for i in action.get('attention', [])])
 
     def test_continue_walks_on_to_a_node_that_is_still_reachable(self):
         """`continue` means "walk on as if it had delivered": when the graph holds other ready work,
-        it really is picked up."""
+        the next round really picks it up."""
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.add_node(NODE2, 'another line', mode='auto')
@@ -641,12 +700,17 @@ class TestShelvedPolicy(Base):
         sb.set_policy('cyc', 'when_shelved', 'continue')
 
         sb.write_signal('cyc', NODE, 'failed', 'this one produced nothing')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
         self.assertEqual(sb.dag_status(NODE), 'shelved')
-        self.assertEqual(sb.current_node(), NODE2)
-        self.assertIn(action['action'], ('dispatch', 'open_node', 'wait'))
+        self.assertEqual(action['action'], 'settle')
+        self.assertFalse(action['parked'], 'the line still had a node to run')
         self.assertEqual(sb.cycle()['status'], 'active', 'the line is still in service')
+
+        receipt = sb.advance()
+
+        self.assertEqual(receipt['pinned'], [NODE2])
+        self.assertEqual(sb.current_node(), NODE2)
 
     def test_the_stop_rule_still_wins_under_continue(self):
         """The policy only answers "does a non-delivery carry on"; it cannot move the node's own
@@ -658,10 +722,11 @@ class TestShelvedPolicy(Base):
         sb.set_policy('cyc', 'when_shelved', 'continue')
 
         sb.write_signal('cyc', NODE, 'failed', 'produced nothing')
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
-        self.assertIn('mode=checkpoint', action['reason'])
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
+        self.assertIn('mode=checkpoint', action['note'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
         self.assertIsNone(sb.current_node())
 
@@ -785,9 +850,10 @@ class TestShelvedNodes(Base):
         sb.start_cycle()
         self.assertEqual(sb.current_node(), NODE2, 'the only node in play is the todo one')
         sb.write_signal('cyc', NODE2, 'completed', 'done')
-        action = sb.close_round(NODE2)
+        action = sb.settle(NODE2)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
         self.assertEqual(sb.dag_status(NODE2), 'completed')
         self.assertEqual({i['node_id'] for i in action['attention']}, {NODE},
                          'a parked node fell out of the human-facing list')
@@ -843,7 +909,7 @@ class TestTheModeWord(Base):
         self.assertEqual('auto', pipeline.dag_ready_nodes(sb.root)[0]['mode'],
                          'the slot in the ready set')
 
-        action = sb.next()
+        action = sb.advance()['plan']
         self.assertEqual('dispatch', action['action'], action)
         self.assertEqual('auto', action['mode'], 'the slot the dispatch reports')
 
@@ -875,7 +941,7 @@ class TestThePromptPath(Base):
         sb.add_node(NODE, 'UI design')
         sb.start_cycle()
 
-        action = sb.next()
+        action = sb.advance()['plan']
 
         expected = pipeline.prompts.launch_prompt_path(sb.root, 'cyc', NODE)
         self.assertEqual('dispatch', action['action'], action)
@@ -888,7 +954,7 @@ class TestThePromptPath(Base):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestTheCloseReadsTheGraphOnce(Base):
-    """The close entry reads the graph once and hands the judgement down as an argument -- several
+    """The settle entry reads the graph once and hands the judgement down as an argument -- several
     branches walk the same one."""
 
     def graph_readers(self):
@@ -937,24 +1003,25 @@ class TestTheCloseReadsTheGraphOnce(Base):
         self.addCleanup(lambda: [setattr(layer, 'load_dag', fn) for layer, fn in real.items()])
         return callers
 
-    def test_a_close_with_nothing_left_reads_the_graph_once(self):
-        """The last slot in hand is closed and the graph has no work: this pass reads the graph once,
-        and the close entry is what reads it."""
+    def test_a_settle_with_nothing_left_reads_the_graph_once(self):
+        """The last slot in hand is settled and the graph has no work: this pass reads the graph
+        once, and the settle entry is what reads it."""
         sb = self.make()
         sb.add_node(NODE, 'UI design')
         sb.start_cycle()
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
         callers = self.graph_readers()
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('stop_pipeline', action['action'], action)
-        self.assertEqual({'_close_own_node'}, set(callers), f'the graph readers: {callers}')
+        self.assertEqual('settle', action['action'], action)
+        self.assertTrue(action['parked'])
+        self.assertEqual({'_settle_plan'}, set(callers), f'the graph readers: {callers}')
 
-    def test_a_close_that_stops_reads_the_graph_once_however_many_branches_it_walks(self):
-        """The stop pass walks the most branches (the ready set, the blocked reason, the named node's
-        tag, the instruction pass's scope judgement inside the stop rule, the attention list), and the
-        close entry is still the only reader of the graph."""
+    def test_a_settle_that_stops_reads_the_graph_once_however_many_branches_it_walks(self):
+        """The stop pass walks the most branches (the ready set, the blocked reason, the instruction
+        pass's scope judgement inside the stop rule, the attention list), and the settle entry is
+        still the only reader of the graph."""
         sb = self.make()
         sb.add_node(NODE, 'UI design')
         sb.add_node(NODE2, 'shelved, waiting for a human', status='shelved')
@@ -962,15 +1029,16 @@ class TestTheCloseReadsTheGraphOnce(Base):
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
         callers = self.graph_readers()
-        action = sb.close_round(NODE, node=NODE2)
+        action = sb.settle(NODE)
 
-        self.assertEqual('stop_pipeline', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
         self.assertTrue(action['attention'], action)
-        self.assertEqual({'_close_own_node'}, set(callers), f'the graph readers: {callers}')
+        self.assertEqual({'_settle_plan'}, set(callers), f'the graph readers: {callers}')
 
-    def test_a_close_with_another_node_still_in_flight_reads_the_graph_once(self):
-        """A multi-slot line still has one slot in flight: this slot closes and a second cannot be
-        filled -> it stops on the "who else is in hand" sentence, with one graph read."""
+    def test_a_settle_with_another_node_still_in_flight_reads_the_graph_once(self):
+        """A multi-slot line still has one slot in flight: this slot settles and a second cannot be
+        filled -> it says so on the "who else is in hand" sentence, with one graph read, and the
+        line stays in service because that in-flight node still carries it."""
         sb = self.make()
         sb.add_node(NODE, 'first')
         sb.add_node(NODE2, 'second')
@@ -978,14 +1046,16 @@ class TestTheCloseReadsTheGraphOnce(Base):
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
         callers = self.graph_readers()
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('stop_pipeline', action['action'], action)
-        self.assertIn(NODE2[:8], action['reason'], 'the reason must name who else is in hand')
+        self.assertEqual('settle', action['action'], action)
+        self.assertFalse(action['parked'], 'a line with work in flight is not parked by one settle')
+        self.assertIn(NODE2[:8], action['note'], 'the note must name who else is in hand')
         self.assertEqual([NODE2], sb.holding_ids(), 'the slot in flight is still held')
-        self.assertEqual({'_close_own_node'}, set(callers), f'the graph readers: {callers}')
+        self.assertEqual(sb.cycle()['status'], 'active')
+        self.assertEqual({'_settle_plan'}, set(callers), f'the graph readers: {callers}')
 
-    def test_a_multi_slot_close_that_cannot_fill_reads_the_graph_once(self):
+    def test_a_multi_slot_settle_that_cannot_fill_reads_the_graph_once(self):
         """A multi-slot line holds one slot and the graph has no second one to fill: it takes the
         blocked-reason branch, with one graph read."""
         sb = self.make()
@@ -994,19 +1064,19 @@ class TestTheCloseReadsTheGraphOnce(Base):
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
         callers = self.graph_readers()
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('stop_pipeline', action['action'], action)
-        self.assertEqual('the graph has no ready node left', action['reason'])
-        self.assertEqual({'_close_own_node'}, set(callers), f'the graph readers: {callers}')
+        self.assertEqual('settle', action['action'], action)
+        self.assertEqual('the graph has no ready node left', action['note'])
+        self.assertEqual({'_settle_plan'}, set(callers), f'the graph readers: {callers}')
 
-    def test_a_close_that_fills_a_slot_reads_the_graph_once(self):
-        """The fill pass: the close reads once, and the dispatch filled right there reads once more.
+    def test_the_round_that_fills_a_slot_reads_the_graph_once_per_word(self):
+        """The fill pass: the settle reads the graph once (its own decision), and the `advance` that
+        fills the freed slot reads it once (the plan's).
 
-        The second read is the **dispatch slot**'s: the dispatch is built in `plan` (it is the same
-        step for a close's refill and for a cycle's first pick), and the plugin gate is asked with
-        the copy that step read. It has nothing to do with the closing pass; the close's own
-        judgements always use the one handed down.
+        The second read is the **advance's own**: the fill is a pick, made by the same step a first
+        pick is, and the plugin gate is asked with the copy that step read. It has nothing to do
+        with the settling pass; the settle's judgements always use the one handed down.
         """
         sb = self.make()
         sb.add_node(NODE, 'first')
@@ -1014,17 +1084,23 @@ class TestTheCloseReadsTheGraphOnce(Base):
         sb.add_node(NODE3, 'third')
         sb.start_cycle()
         sb.set_policy('cyc', 'parallel', 2)
-        sb.set_current_node(NODE2)
+        sb.hold(NODE2)
+        # Both slots' sessions are open, so the freed one is the only thing the next round may fill.
+        sb.advance(spawner=sb.fake_spawner(), dry_run=False)
         sb.write_signal('cyc', NODE, 'completed', 'done')
 
         callers = self.graph_readers()
-        action = sb.close_round(NODE)
+        settled = sb.settle(NODE)
+        self.assertEqual({'_settle_plan'}, set(callers),
+                         f'the settle read the graph more than once: {callers}')
 
-        self.assertEqual('dispatch', action['action'], action)
-        self.assertEqual(sorted(sb.holding_ids()), sorted([NODE2, NODE3]),
-                         'the slot that was freed has been filled')
-        self.assertEqual({'_close_own_node', 'plan'}, set(callers),
-                         f'the graph readers: {callers}')
+        callers.clear()
+        receipt = sb.advance()
+
+        self.assertEqual('settle', settled['action'], settled)
+        self.assertEqual(receipt['pinned'], [NODE3], 'the slot that was freed has been filled')
+        self.assertEqual(sorted(sb.holding_ids()), sorted([NODE2, NODE3]))
+        self.assertEqual({'plan'}, set(callers), f'the graph readers: {callers}')
 
     def test_the_pick_path_reads_the_graph_once_too(self):
         """The path with no node in hand (the opening pick) is also one entry with one read: when the
@@ -1063,10 +1139,10 @@ class TestTheCloseHasOneEntry(Base):
     code-shape one, and the shape does not change with a data folder.
     """
 
-    #: The machinery a close is built from: the stop rule, the mechanical close list, the stop
+    #: The machinery a settle is built from: the stop rule, the mechanical close list, the settle
     #: answer, and the plugins' two halves (the judgement the host is asked, and the action it
     #: becomes).
-    MACHINERY = ('stop_criterion', '_close_commands', '_stop_action', '_plugin_insertions',
+    MACHINERY = ('stop_criterion', '_close_commands', '_settle_action', '_plugin_insertions',
                  '_insertions_due')
 
     def machinery_callers(self):
@@ -1101,8 +1177,8 @@ class TestTheCloseHasOneEntry(Base):
         return callers
 
     def one_slot_closes(self):
-        """The closes a one-slot line can take: stop, open, the gate, a record-only close, a
-        non-delivery, and a name that is not a ready node."""
+        """The settles a one-slot line can take: stop, a node behind it, the gate, a record-only
+        settle, and a non-delivery."""
         def stop_empty(sb):
             sb.add_node(NODE, 'UI design')
             sb.start_cycle()
@@ -1135,23 +1211,23 @@ class TestTheCloseHasOneEntry(Base):
             sb.write_signal('cyc', NODE, 'failed', 'broke')
             return {'node': NODE}
 
-        def named_not_ready(sb):
+        def unreachable_behind_it(sb):
             sb.add_node(NODE, 'UI design')
-            sb.add_node(NODE2, 'already done', status='completed')
+            sb.add_node(NODE2, 'still waiting on it', deps=[NODE])
             sb.start_cycle()
             sb.write_signal('cyc', NODE, 'completed', 'done')
-            return {'node': NODE, 'node_arg': NODE2}
+            return {'node': NODE}
 
         return (('one slot, nothing left', stop_empty),
-                ('one slot, the next one opens', open_next),
+                ('one slot, the next one is ready', open_next),
                 ('one slot, the checkpoint gate', checkpoint_gate),
                 ('one slot, the line out of service', line_out_of_service),
                 ('one slot, not delivered', not_delivered),
-                ('one slot, a node named by hand that is not ready', named_not_ready))
+                ('one slot, a node behind it that it cannot reach', unreachable_behind_it))
 
     def several_slot_closes(self):
-        """The closes a line holding several slots can take: a refill, a slot still in flight with
-        nothing to refill with, and a close each shipped plugin answers with a node."""
+        """The settles a line holding several slots can take: a refill, a slot still in flight with
+        nothing to refill with, and a settle each shipped plugin answers with a node."""
         def fill_one(sb):
             sb.add_node(NODE, 'UI design')
             sb.add_node(NODE2, 'the next one')
@@ -1165,7 +1241,7 @@ class TestTheCloseHasOneEntry(Base):
             sb.add_node(NODE2, 'still running')
             sb.start_cycle()
             sb.set_policy('cyc', 'parallel', 2)
-            sb.set_current_node(NODE2)
+            sb.hold(NODE2)
             sb.write_signal('cyc', NODE, 'completed', 'done')
             return {'node': NODE}
 
@@ -1198,9 +1274,9 @@ class TestTheCloseHasOneEntry(Base):
                 ('several slots, the ticket line answers with a node', ticket_due),
                 ('several slots, the pool line answers with a node', pool_due))
 
-    def test_every_close_decision_hangs_from_one_function(self):
-        """One slot or several, stop or open: the close's whole judgement is asked from the one
-        entry, so a new judgement point has one place to be hung -- and a second close ladder, of
+    def test_every_settle_decision_hangs_from_one_function(self):
+        """One slot or several, stop or carry on: the settle's whole judgement is asked from the one
+        entry, so a new judgement point has one place to be hung -- and a second settle ladder, of
         whatever shape, would show up here as a second caller."""
         cases = list(self.one_slot_closes()) + list(self.several_slot_closes())
         callers = self.machinery_callers()
@@ -1208,14 +1284,14 @@ class TestTheCloseHasOneEntry(Base):
         for name, build in cases:
             sb = self.make()
             close = build(sb)
-            action = sb.close_round(close['node'], node=close.get('node_arg'))
-            self.assertTrue(action.get('action'), f'{name}: the close returned no action')
+            action = sb.settle(close['node'])
+            self.assertTrue(action.get('action'), f'{name}: the settle returned no action')
 
         asked = {who for _, who in callers}
-        self.assertEqual({'_close_own_node'}, asked,
-                         f'something else is making the close decision: {sorted(callers)}')
+        self.assertEqual({'_settle_plan'}, asked,
+                         f'something else is making the settle decision: {sorted(callers)}')
         self.assertEqual(set(self.MACHINERY), {what for what, _ in callers},
-                         'a piece of the close machinery was never asked -- the pin above is '
+                         'a piece of the settle machinery was never asked -- the pin above is '
                          f'then one branch short: {sorted(callers)}')
 
 

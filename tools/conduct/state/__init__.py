@@ -10,12 +10,13 @@ parser and nothing else; the machinery is here:
     knobs.py             the settings table: the four kinds, the one chain (node -> cycle -> project
                          -> global -> factory default), and what came from which layer
     cycles.py            the `cycle` group: one line of work -- create / start / rename / status /
-                         policy / list / current / show / hold / close / retry
+                         policy / list / current / show / close / retry -- and the claim write
+                         (`claim_nodes`) the `hold` word lands
     instruct.py          the `instruction` group: the standing-instructions account, and what is
                          visible from where
-    nextcmd.py           `next` -- the one command that drives the pipeline -- and `dispatch`, the
-                         standalone half of its spawn tail; also the closing call's by-node
-                         resolution
+    plancmd.py           the pipeline's front door: `plan` (read), `hold` (claim), `settle` (one
+                         node's end), `advance` (claim + material + session) and `dispatch`
+                         (sessions only); also the by-node resolution a closing call uses
     levers.py            the tidy levers (clean-temp)
     initledger.py        `init` -- the one setup act: write the four layout files under
                          `.superworker/`; and `register`, which wires the merge driver into a
@@ -41,7 +42,7 @@ from . import pipeline_loader  # noqa: F401
 from . import knobs  # noqa: F401
 from . import cycles  # noqa: F401
 from . import instruct  # noqa: F401
-from . import nextcmd  # noqa: F401
+from . import plancmd  # noqa: F401
 from . import levers  # noqa: F401
 from . import initledger  # noqa: F401
 from . import migrate  # noqa: F401
@@ -57,8 +58,8 @@ from . import session  # noqa: F401
 #: re-exporting them would hand a caller a snapshot that `bind_paths` cannot move.
 __all__ = [
     # the layers themselves, for a caller that wants to poke at one of them
-    'store', 'pipeline_loader', 'knobs', 'cycles', 'instruct', 'nextcmd', 'levers',
-    'initledger', 'fork', 'config',
+    'store', 'pipeline_loader', 'knobs', 'cycles', 'instruct', 'plancmd', 'levers',
+    'initledger', 'fork', 'config', 'session',
 
     # store: the read/write layer over the ledger (`.superworker/`) and the doors off it
     'VALID_NODE_RESULTS', 'ISO_FMT', 'LEDGER_NAME', 'INIT_MARKERS',
@@ -85,9 +86,9 @@ __all__ = [
     'POLICY_WORDS', 'POLICY_WORD_CHOICES', 'POLICY_KEYS', 'cycle_policy',
     'cmd_cycle_create', 'cmd_cycle_start', 'cmd_cycle_rename', 'cmd_cycle_status',
     'cmd_cycle_policy', 'cmd_cycle_list', 'cmd_cycle_current', 'cmd_cycle_show',
-    'cmd_cycle_hold', 'cmd_cycle_close', 'cmd_cycle_retry',
+    'claim_nodes', 'cmd_cycle_hold', 'cmd_cycle_close', 'cmd_cycle_retry',
 
-    # nextcmd: the closing call's by-node resolution
+    # plancmd: the closing call's by-node resolution, and the pipeline's five words
     'resolve_cycle_for_node', 'describe_holders',
 
     # instruct: the instruction account, the scope vocabulary, and what is visible from where
@@ -97,8 +98,9 @@ __all__ = [
     'cmd_instruction_add', 'cmd_instruction_list', 'cmd_instruction_resolve',
     'cmd_instruction_rm', 'cmd_instruction_revive',
 
-    # nextcmd / levers / init
-    'cmd_next', 'cmd_dispatch', 'cmd_clean_temp', 'cmd_init', 'cmd_register',
+    # plancmd / levers / init
+    'cmd_plan', 'cmd_hold', 'cmd_settle', 'cmd_advance', 'cmd_dispatch', 'cmd_clean_temp',
+    'cmd_init', 'cmd_register',
 
     # migrate: the move out of the old record directory, and the reading of whether it may run
     'cmd_migrate', 'migration_preconditions', 'refusal_sentence', 'KNOWN_GENERATIONS',
@@ -133,7 +135,7 @@ def bind_paths(ledger_dir) -> None:
 # with `__all__`, and a name that appears in one and not the other is exactly the drift this split
 # has to avoid -- so a name nobody defines is a loud ImportError at load time, not a missing
 # attribute later.
-_LAYERS = (store, pipeline_loader, knobs, cycles, instruct, nextcmd, levers, initledger,
+_LAYERS = (store, pipeline_loader, knobs, cycles, instruct, plancmd, levers, initledger,
            migrate, fork, config, session)
 
 for _name in __all__:

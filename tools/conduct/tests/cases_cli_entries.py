@@ -1,9 +1,9 @@
 """`conduct_pipeline.py`'s own entries, and the one file that builds the spawner's argv.
 
-The module has two entry surfaces of its own -- `plan` / `apply` / `record` as a process -- and the
-first half drives them the shipped way against a throwaway project. The second half is the guard over
-the shipped sources: exactly one file may spell `dsh-spawn.ps1`'s argv, because a second spelling
-reads perfectly well on its own.
+The module has three entry surfaces of its own -- `plan` / `settle` / `advance` as a process -- and
+the first half drives them the shipped way against a throwaway project. The second half is the guard
+over the shipped sources: exactly one file may spell `dsh-spawn.ps1`'s argv, because a second
+spelling reads perfectly well on its own.
 
 The state-manage surface (the CLI a session actually calls) is in `cases_cli.py`; the spawner scripts
 as real processes are in `cases_spawn_shell.py`.
@@ -25,7 +25,7 @@ __all__ = ['TestPipelineModuleEntries', 'TestOneSpawner']
 class TestPipelineModuleEntries(Base):
     """`conduct_pipeline.py` as a real process: the module's own entry points, driven the shipped way.
 
-    These are not the state-manage surface: `plan` / `apply` / `record` are how a launcher (and the
+    These are not the state-manage surface: `plan` / `settle` / `advance` are how a launcher (and the
     module's own documented usage) reaches the pipeline, so their spelling, their encoding and their
     exit codes are part of what is under test.
     """
@@ -58,7 +58,7 @@ class TestPipelineModuleEntries(Base):
         sb.create_cycle('cyc')
 
         mine = self.pipeline_cli(sb, 'plan', '--project', sb.root, '--json')
-        theirs = self.cli(sb, 'next', '--plan', '--json')
+        theirs = self.cli(sb, 'plan', '--json')
 
         self.assertEqual(mine.returncode, 0, mine.stderr)
         self.assertEqual(theirs.returncode, 0, theirs.stderr)
@@ -68,34 +68,35 @@ class TestPipelineModuleEntries(Base):
         self.assertTrue(action.get('settling'), 'the preview did not report "still settling"')
         self.assertNotIn('commands', action, 'the preview handed the commands over')
 
-    def test_apply_is_the_settle_the_worker_asked_for(self):
-        """`conduct_pipeline.py apply` is that one settle `sw next --after` performs: it reads the
-        note in the slot in hand.
+    def test_settle_is_the_word_the_worker_asked_for(self):
+        """`conduct_pipeline.py settle --node <id>` is that one settle `sw settle` performs: it reads
+        the note in the slot in hand.
 
-        This entry's own help says `--after` runs it, so both entries give the same answer for the
-        same state: the slot in hand has filed its note, so it settles -- one step recorded in path,
-        the DAG marked completed, and the line closed out by the stop rule.
+        Both entries give the same answer for the same state: the slot in hand has filed its note, so
+        it settles -- one step recorded in path, the DAG marked completed, and the line closed out by
+        the stop rule (which is what `parked` says).
         """
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
         sb.write_signal('cyc', NODE, 'completed', 'sw-conduct finished')
 
-        proc = self.pipeline_cli(sb, 'apply', '--project', sb.root, '--json')
+        proc = self.pipeline_cli(sb, 'settle', '--project', sb.root, '--node', NODE, '--json')
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         action = json.loads(proc.stdout)
-        self.assertEqual(action['action'], 'stop_pipeline', action)
+        self.assertEqual(action['action'], 'settle', action)
+        self.assertTrue(action['parked'])
         self.assertEqual([step['result'] for step in sb.path()], ['completed'])
         self.assertEqual(sb.dag_status(NODE), 'completed')
         self.assertEqual(sb.cycle()['status'], 'inactive')
 
-    def test_apply_names_the_node_it_settles(self):
-        """With two slots in hand, `apply --after <node>` says which slot this settle is for.
+    def test_settle_names_the_node_it_settles(self):
+        """With two slots in hand, `settle --node <id>` says which slot this settle is for.
 
-        Without `--after` this entry cannot read whom to settle -- more than one slot is in hand, so
-        that pass reports `wait` alone and writes not one byte; named, it is the same thing as
-        `sw next --after`: one step recorded in path, the DAG marked completed.
+        Without `--node` the closing reading cannot tell whom to settle -- more than one slot is in
+        hand -- so that pass reports `wait` alone and writes not one byte; named, it is the same thing
+        as `sw settle`: one step recorded in path, the DAG marked completed.
         """
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
@@ -103,40 +104,45 @@ class TestPipelineModuleEntries(Base):
         sb.start_cycle(parallel=2)
         sb.write_signal('cyc', NODE2, 'completed', 'sw-conduct finished')
 
-        blind = self.pipeline_cli(sb, 'apply', '--project', sb.root, '--json')
+        blind = self.pipeline_cli(sb, 'settle', '--project', sb.root, '--json')
 
         self.assertEqual(blind.returncode, 0, blind.stderr)
         self.assertEqual('wait', json.loads(blind.stdout)['action'], blind.stdout)
         self.assertEqual([], sb.path(), 'the pass that named nobody settled a slot')
 
-        named = self.pipeline_cli(sb, 'apply', '--project', sb.root, '--after', NODE2, '--json')
+        named = self.pipeline_cli(sb, 'settle', '--project', sb.root, '--node', NODE2, '--json')
 
         self.assertEqual(named.returncode, 0, named.stderr)
         self.assertEqual([step['node'] for step in sb.path()], [NODE2])
         self.assertEqual(sb.dag_status(NODE2), 'completed')
 
-    def test_the_closing_answers_are_refused_without_a_preview(self):
-        """A closing answer is refused where there is no question to settle -- the same rule as
-        `sw next`.
-
-        The refusal's reason: with no question to settle, taking the answer would make it look as if
-        that word had been accepted -- the pipeline moved not one byte, yet the command reports
-        success.
+    def test_the_words_take_no_decision_flags(self):
+        """A word's flags shape how it runs; none of them chooses a different operation, and the ones
+        the old entry carried (`--plan`, `--after` on the writing side, `--continue`, `--stop`) are
+        refused by the parser -- the pipeline moved not one byte, and the command says so instead of
+        reporting success.
         """
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
         before = sb.state()
 
-        refused = self.pipeline_cli(sb, 'apply', '--project', sb.root, '--stop')
+        for gone in (['--stop'], ['--continue'], ['--plan']):
+            refused = self.pipeline_cli(sb, 'advance', '--project', sb.root, *gone)
+            self.assertEqual(refused.returncode, 2, f'{gone} was accepted:\n{refused.stdout}')
+            self.assertIn('unrecognized arguments', refused.stderr)
+            self.assertEqual(sb.state(), before, 'the refused command moved the state')
 
-        self.assertEqual(refused.returncode, 2, refused.stdout)
-        self.assertIn('closing call', refused.stderr)
+        # `--after` exists on this entry and belongs to `plan`: the writing word says so in its own
+        # words rather than quietly ignoring it.
+        misplaced = self.pipeline_cli(sb, 'advance', '--project', sb.root, '--after', NODE)
+        self.assertEqual(misplaced.returncode, 2, misplaced.stdout)
+        self.assertIn('closing rehearsal', misplaced.stderr)
         self.assertEqual(sb.state(), before, 'the refused command moved the state')
 
-        theirs = self.cli(sb, 'next', '--stop')
+        theirs = self.cli(sb, 'hold', NODE, '--cycle', 'cyc', '--continue')
         self.assertEqual(theirs.returncode, 2, theirs.stdout)
-        self.assertIn('closing call', theirs.stderr)
+        self.assertIn('unrecognized arguments', theirs.stderr)
 
 
 class TestOneSpawner(Base):
@@ -155,7 +161,7 @@ class TestOneSpawner(Base):
     def test_handoff_cannot_spawn(self):
         """`handoff.py` writes a ticket and stops there: no spawner, no call, no argv. A session
         started before the node that closed it was committed and pushed is the failure this rules
-        out; the planner produces no case that asks for one (a terminal ticket makes `record` answer
+        out; the planner produces no case that asks for one (a terminal ticket makes `plan` answer
         `wait`).
         """
         source = (CONDUCT_DIR / 'handoff.py').read_text(encoding='utf-8')

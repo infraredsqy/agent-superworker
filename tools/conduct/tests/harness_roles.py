@@ -1,7 +1,8 @@
-"""The two stubbed session roles and the driver that plays them.
+"""The session roles and the driver that plays them.
 
-`WorkerSession`/`Closer` are a node's worker and its closing call; `Driver` plays them node after
-node to a terminal action; `finish_node` is the shared convenience builder.
+`WorkerSession` is a node's worker; `Driver` plays the flow the engine asks for -- the host runs
+`advance`, the worker reports, the worker's own `settle` closes the node it ran; `finish_node` is the
+shared convenience builder.
 """
 
 from __future__ import annotations
@@ -9,11 +10,11 @@ from __future__ import annotations
 from harness_env import TERMINAL_ACTIONS
 from harness_sandbox import Sandbox
 
-__all__ = ['WorkerSession', 'Closer', 'stop_after', 'Driver', 'finish_node']
+__all__ = ['WorkerSession', 'Driver', 'finish_node']
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  The two roles a session plays
+#  The role a session plays
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class WorkerSession:
@@ -67,113 +68,100 @@ class WorkerSession:
         return self.sb.write_signal(self.cycle, node, status, summary, outs)
 
 
-class Closer:
-    """The worker's own closing call: `next --after <node_id> [--continue|--stop] [--node ID]`.
-
-    The outcome is NOT a lever here -- the tool reads it off the signal the worker wrote -- so what
-    a test supplies is what the closing call still decides: the decision, the node it aims at, and
-    the note that ends up in the stop reason. `cases` is by node id, `on_node` is a hook that gets
-    the wait action the planner handed over.
-    """
-
-    def __init__(self, cases=None, default='continue', on_node=None):
-        self.cases = dict(cases or {})   # {node_id: 'continue'|'stop'|(decision, node, note)}
-        self.default = default
-        self.on_node = on_node           # callable(sb, action) -> override
-
-    def answer_for(self, sb, action):
-        if self.on_node:
-            got = self.on_node(sb, action)
-            if got:
-                return self._norm(got)
-        return self._norm(self.cases.get(action.get('node_id'), self.default))
-
-    @staticmethod
-    def _norm(got):
-        if got is None:
-            return {'decision': None, 'node': None, 'note': ''}
-        if isinstance(got, str):
-            return {'decision': got, 'node': None, 'note': ''}
-        if isinstance(got, (tuple, list)):
-            return {'decision': got[0] if len(got) > 0 else None,
-                    'node': got[1] if len(got) > 1 else None,
-                    'note': got[2] if len(got) > 2 else ''}
-        return {'decision': got.get('decision'), 'node': got.get('node'),
-                'note': got.get('note', '')}
-
-    def close(self, sb, action):
-        ans = self.answer_for(sb, action)
-        return sb.close_node_call(action['node_id'], **ans)
-
-
-def stop_after(nodes):
-    """A closing call that keeps going until `nodes` nodes have been carried, then stops.
-
-    This is how a standing instruction like "finish this one and stop" shows up: the session read it, so it
-    says stop. The tool is never asked to parse the sentence.
-
-    The count includes the node being closed, because that is the count the tool itself uses: the
-    close has not run yet, so the step in hand is not in the path.
-    """
-
-    def hook(sb, action):
-        cycle = action.get('cycle') or 'cyc'
-        done = len(sb.path(cycle)) + (1 if sb.current_node(cycle) else 0)
-        return 'stop' if done >= nodes else 'continue'
-
-    return hook
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  The driver
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class Driver:
-    """Drive the real pipeline to its terminal action: worker -> its own close -> worker ...
+    """Drive a line the way the engine asks: advance -> report -> settle -> advance ...
 
-    It never performs a pipeline step. Per step it does the two things only a session can do: run a
-    worker (which writes its ticket through the real command) and run that worker's closing call
-    (through `next --after`, which is what settles and closes the node).
+    It never performs a pipeline step itself. Per round it does the three things only a host and a
+    session can do:
 
-    Every `next` that reports `applied` is checked against a before/after snapshot of the project
-    taken from disk: the tool may not report success while nothing changed.
+      * the host runs `advance` -- claim the free slots, land each cell's material, open one session
+        per cell (a drill here: nothing opens and no `started` stamp lands);
+      * the worker reports on the cell the plan dispatched, through the real command;
+      * the worker's own `settle` closes the node it ran -- that is what records the step, marks the
+        graph and lets the stop rule say whether the line parks. **A settle that parks the line is
+        where a run ends**: the line is out of service and nothing else moves by itself.
+
+    Every move that reports `applied` is checked against a before/after snapshot of the project taken
+    from disk: the tool may not report success while nothing changed.
     """
 
-    def __init__(self, sb: Sandbox, cycle='cyc', closer=None, worker=None, max_steps=80,
-                 verify=True):
+    def __init__(self, sb: Sandbox, cycle='cyc', worker=None, max_steps=80, verify=True):
         self.sb = sb
         self.cycle = cycle
-        self.closer = closer or Closer()
         self.worker = worker or WorkerSession(sb, cycle)
         self.max_steps = max_steps
         self.verify = verify
-        self.actions = []           # every action returned by `next`
-        self.applied = []           # (action, state_before, state_after) for each applied action
+        self.actions = []           # every action the run read, in order
+        self.receipts = []          # every `advance` receipt, in order
+        self.applied = []           # (action, state_before, state_after) for each carried-out move
         self.dispatched = []        # (node_id, skill) in order
-        self.nodes_closed = []      # nodes whose closing call ran
+        self.nodes_closed = []      # nodes whose settle ran
 
-    # ── one step ─────────────────────────────────────────────────────────────
-    def step(self):
-        # The pre-action snapshot has to be taken BEFORE the tool runs: `apply` moves the state
-        # itself, so after it returns there is nothing left to compare against.
+    # ── the host's move ──────────────────────────────────────────────────────
+    def _advance(self, action):
+        """Run the host's word for the round the plan named, and check the contract it promises.
+
+        `action` is the reading taken BEFORE the word ran: `applied` is only asserted when the word
+        really moved the project (a claim landed, a prompt was written, a session was opened), and
+        the reading is what that move was for.
+        """
         before = self.sb.state_sig(self.cycle)
-        action = self.sb.next()
-        self.actions.append(action)
-        if action.get('applied'):
-            after = self.sb.state_sig(self.cycle)
+        receipt = self.sb.advance(self.cycle)
+        self.receipts.append(receipt)
+        after = self.sb.state_sig(self.cycle)
+        if receipt.get('pinned'):
             self.applied.append((action, before, after))
             if self.verify and after == before:
                 raise AssertionError(
-                    f'action {action["action"]!r} was applied but no state on disk changed: '
-                    f'{after}')
+                    f'advance claimed {receipt["pinned"]} but no state on disk changed: {after}')
+        return receipt
+
+    # ── the worker's two acts ────────────────────────────────────────────────
+    def _work(self, node, action):
+        """One worker act: report on `node` under the action the host handed over."""
+        if action.get('action') == 'dispatch':
+            self.dispatched.append((node, action.get('skill')))
+        self.worker.work(dict(action, action='dispatch', node_id=node))
+
+    def _settle(self, node):
+        """The worker's own settle for `node`: record it, and say whether the line parked."""
+        before = self.sb.state_sig(self.cycle)
+        settled = self.sb.settle(node, cycle_id=self.cycle)
+        self.actions.append(settled)
+        self.nodes_closed.append(node)
+        after = self.sb.state_sig(self.cycle)
+        if settled.get('applied'):
+            self.applied.append((settled, before, after))
+            if self.verify and after == before:
+                raise AssertionError(
+                    f'settle of {node} reported applied but no state on disk changed: {after}')
+        return settled
+
+    def _apply(self, action):
+        """A plan that is a graph edit and nothing else: a pick-time insertion.
+
+        `insert_node` comes back from `plan` as a graph edit with nothing to open (no session, no
+        pin). `advance` carries it out -- and stops the round there, because nothing was opened.
+        """
+        return self._advance(action)
+
+    # ── the whole walk ───────────────────────────────────────────────────────
+    def step(self):
+        """One reading of the line: the action the plan names, before anything is carried out."""
+        action = self.sb.plan(self.cycle)
+        self.actions.append(action)
         return action
 
     def run(self, until=None):
-        """Play both roles until `until(action)` says stop, or the pipeline answers terminally.
+        """Play the host and the two worker acts until `until(action)` says stop, or the run ends.
 
-        `until` is how a caller picks its own finish line -- `finish_node` stops at the node's own
-        close. The pipeline answering terminally before that line is reached means the walk ended
-        somewhere the caller did not ask for, so it is raised rather than returned.
+        `until` is how a caller picks its own finish line -- `finish_node` stops at the point where
+        only the node's settle is left. The pipeline ending before that line is reached means the
+        walk ended somewhere the caller did not ask for, so it is raised rather than returned.
         """
         for _ in range(self.max_steps):
             action = self.step()
@@ -182,26 +170,42 @@ class Driver:
             if until is not None and until(action):
                 return action
 
-            if kind == 'dispatch':
-                self._work(action)
-                # The worker's next act is its closing call; the planner answers that state with
-                # `wait` + `close_with`, which is what the next step reads.
+            if kind in ('open_node', 'dispatch'):
+                receipt = self._advance(action)
+                view = receipt.get('plan') or action
+                for node in self._nodes_of(action):
+                    self._work(node, view)
                 continue
 
             if kind == 'wait' and action.get('close_with'):
-                # Only the node's own close is left. The worker that just reported runs it.
-                answer = self._close(action)
-                if answer['action'] == 'dispatch':
-                    self._work(answer)
-                    continue
-                if answer['action'] in TERMINAL_ACTIONS:
-                    if until is not None:
-                        raise AssertionError(
-                            f'the pipeline stopped before the point asked for: {answer}')
-                    return answer
-                if answer['action'] == 'wait':
-                    raise AssertionError(f'stalled on wait after the closing call: {answer}')
+                # Only the node's own settle is left. The worker that just reported runs it.
+                settled = self._settle(action['node_id'])
+                if settled.get('parked'):
+                    return settled
                 continue
+
+            if kind == 'wait':
+                # A `pending` ticket is a red light: the retry pair is the only way forward, and the
+                # note says so. A driver that polled here would spin forever.
+                raise AssertionError(f'stalled on wait: {action}')
+
+            if kind == 'insert_node':
+                # A graph edit and nothing else: `advance` lands it, claims nobody and opens
+                # nothing, and the next round picks the new node up by the usual ranking.
+                self._apply(action)
+                continue
+
+            if kind == 'settle':
+                continue
+
+            if kind == 'stop_pipeline':
+                # The plan's own stop, written down: a line it stopped with nothing in hand is
+                # turned `inactive` by the word that carries this plan out.
+                self._advance(action)
+                if until is not None:
+                    raise AssertionError(
+                        f'the pipeline stopped before the point asked for: {action}')
+                return action
 
             if kind in TERMINAL_ACTIONS:
                 if until is not None:
@@ -209,37 +213,23 @@ class Driver:
                         f'the pipeline stopped before the point asked for: {action}')
                 return action
 
-            if kind == 'wait':
-                # A node already in flight: the report that settles it is the worker's next act.
-                self._work(action)
-                continue
             raise AssertionError(f'unexpected action {kind!r}: {action}')
         raise AssertionError('the pipeline never settled; last actions: '
                              + str(self.kinds()[-8:]))
 
-    def _work(self, action):
-        """One worker act: report on the node this action names.
+    @staticmethod
+    def _nodes_of(action):
+        """Every node this action asks a worker for, in the line's own order.
 
-        Two kinds of action ask for it -- a fresh `dispatch`, and a `wait` naming a node already in
-        flight, which is the planner waiting for the report that closes it. Which is which is read
-        here and nowhere else, so `run` and `finish_node` cannot drift apart on it.
+        A dispatch names one entry per cell (`nodes`), and so does the claim behind it (`open_node`
+        names bare ids): one reading, so the two rounds cannot drift apart on which cells were
+        opened.
         """
-        if action['action'] == 'dispatch':
-            self.dispatched.append((action.get('node_id'), action.get('skill')))
-        self.worker.work(action)
-
-    def _close(self, action):
-        """Run the closer's own call for `action` and record what it moved. Returns its answer.
-
-        The closing call is applied by the tool: it records the path step, marks the node in the
-        DAG and points the cycle at the next node (or parks it).
-        """
-        self.nodes_closed.append(action.get('node_id'))
-        answer = self.closer.close(self.sb, action)
-        self.actions.append(answer)
-        if answer.get('applied'):
-            self.applied.append((answer, None, self.sb.state_sig(self.cycle)))
-        return answer
+        entries = action.get('nodes') or []
+        ids = [item.get('node_id') if isinstance(item, dict) else item for item in entries]
+        if not ids and action.get('node_id'):
+            ids = [action['node_id']]
+        return [node for node in ids if node]
 
     # ── inspection helpers ───────────────────────────────────────────────────
     def kinds(self):
@@ -249,8 +239,8 @@ class Driver:
         """No returned action carries commands for the caller to RUN.
 
         An action that answers "nothing to do" may say so with an empty list (`commands: []` on
-        `ask_user` / `no_cycle`) -- there is nothing in it to run, so it is not a
-        handover. A populated list is, and that is what the action set must never contain.
+        `ask_user` / `no_cycle`) -- there is nothing in it to run, so it is not a handover. A
+        populated list is, and that is what the action set must never contain.
         """
         return [a for a in self.actions if a.get('commands')]
 
@@ -258,16 +248,16 @@ class Driver:
 # ── convenience builders used by several test classes ────────────────────────
 
 def _closable(action):
-    """`finish_node`'s stop line: only the node's own close is left."""
+    """`finish_node`'s stop line: the node's ticket is on disk, and only its settle is left."""
     return action['action'] == 'wait' and bool(action.get('close_with'))
 
 
 def finish_node(sb, cycle='cyc', worker=None):
-    """Walk one node to the point where only its close is left. Returns that `wait` action.
+    """Walk one node to the point where only its settle is left. Returns that `wait` action.
 
-    The action is the worker's own cue: `close_with` names the command that settles the node, and
-    running it (through `sandbox.close_node_call`) is what closes it. The walk itself is `Driver`'s
-    -- stepping, the applied-state contract and the worker's act all live there -- with this
-    predicate as its finish line.
+    The action is the worker's own cue: `close_with` names the command that records the node, and
+    running it (`sandbox.settle`) is what closes it. The walk itself is `Driver`'s -- the host's
+    advance, the applied-state contract and the worker's act all live there -- with this predicate as
+    its finish line.
     """
     return Driver(sb, cycle, worker=worker, max_steps=20).run(until=_closable)

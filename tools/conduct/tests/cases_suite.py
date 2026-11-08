@@ -33,8 +33,8 @@ __all__ = ['TestNoRealDispatchInTheSuite', 'TestEveryCasesFileStandsAlone',
 #: The repo root this checkout is a worktree of. The shipped tree is everything under it.
 ROOT = TOOLS_DIR.parent
 #: The one file allowed to bind the spawn flag -- read from `harness.SPAWN_FLAG` (which
-#: `harness_sandbox.py` owns), never spelled here: `Sandbox.spawn_next` builds its argv from that
-#: name, and it is the suite's only door to a call that could open a session.
+#: `harness_sandbox.py` owns), never spelled here: `Sandbox.advance` / `Sandbox.dispatch` build their
+#: argv from that name, and they are the suite's only door to a call that could open a session.
 SPAWN_OWNER = 'harness_sandbox.py'
 
 
@@ -76,11 +76,11 @@ _LOAD_ALONE = '\n'.join([
 class TestNoRealDispatchInTheSuite(unittest.TestCase):
     """No case puts a session start on a command line.
 
-    The suite's one door to that flag is `Sandbox.spawn_next`, and it owns both the spelling and the
-    drill switch behind it. A case that spells the flag into its own argv -- as a literal, or through
-    a name bound to it -- leaves the switch as the only thing between that call and a real session,
-    and the switch is one environment variable that a test asserting spawner behaviour deliberately
-    takes back out.
+    The suite's one door to that flag is `Sandbox.advance` / `Sandbox.dispatch`, and they own both
+    the spelling and the drill switch behind it. A case that spells the flag into its own argv -- as
+    a literal, or through a name bound to it -- leaves the switch as the only thing between that call
+    and a real session, and the switch is one environment variable that a test asserting spawner
+    behaviour deliberately takes back out.
     """
 
     def test_the_flag_is_bound_in_one_place_and_never_spliced_into_an_argv(self):
@@ -132,10 +132,12 @@ class TestNoRealDispatchInTheSuite(unittest.TestCase):
 
         self.assertEqual({(SPAWN_OWNER, 'SPAWN_FLAG')}, spelled,
                          'a case bound the spawn flag to a name of its own: that flag has one home '
-                         'and one door, Sandbox.spawn_next')
-        self.assertEqual([], spliced,
-                         f'a case spliced --spawn into a command line, leaving the drill switch as '
-                         f'the only thing before a real session: {spliced}')
+                         'and one door, `Sandbox.advance` / `Sandbox.dispatch`')
+        # The sentence is built outside the assert: a reading that names the flag inside a call's
+        # arguments is the very shape this case reports, and the guard would flag itself.
+        detail = (f'a case spliced {SPAWN_FLAG} into a command line, leaving the drill switch as the '
+                  f'only thing before a real session: {spliced}')
+        self.assertEqual([], spliced, detail)
 
 
 class TestEveryCasesFileStandsAlone(unittest.TestCase):

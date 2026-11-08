@@ -102,24 +102,32 @@ class FastStateManage:
     #: argv[0] is the interpreter and argv[1] the script (both are skipped; conduct_pipeline builds
     #: them with sys.executable and the module's own absolute path). The two noun groups (`cycle`,
     #: `instruction`) are entries here and carry their own sub-verb tables below.
-    _VERBS = ('cycle', 'instruction', 'next', 'dispatch', 'clean-temp')
+    _VERBS = ('cycle', 'instruction', 'plan', 'hold', 'settle', 'advance', 'dispatch', 'clean-temp')
 
     # verb -> positional names, then per-flag (name, takes_value, default).
     _SPEC = {
         'clean-temp': ((), {'--project': ('project', True, None), '--node': ('node', True, None),
                             '--yes': ('yes', False, False), '--force': ('force', False, False)}),
+        'plan': ((), {'--cycle': ('cycle', True, None), '--project': ('project', True, None),
+                      '--json': ('json', False, False),
+                      '--after': ('after', True, None)}),
+        'hold': (('node',), {'--cycle': ('cycle', True, None),
+                             '--project': ('project', True, None)}),
+        'settle': (('node',), {'--cycle': ('cycle', True, None),
+                               '--project': ('project', True, None),
+                               '--json': ('json', False, False),
+                               '--dry-run': ('dry_run', False, False)}),
+        'advance': ((), {'--cycle': ('cycle', True, None),
+                         '--project': ('project', True, None),
+                         '--json': ('json', False, False),
+                         '--spawner': ('spawner', True, None)}),
         'dispatch': (('id',), {'--project': ('project', True, None),
                                '--json': ('json', False, False),
                                '--spawner': ('spawner', True, None)}),
-        'next': ((), {'--cycle': ('cycle', True, None), '--project': ('project', True, None),
-                      '--plan': ('plan', False, False),
-                      '--json': ('json', False, False),
-                      '--continue': ('cont', False, False), '--stop': ('stop', False, False),
-                      '--node': ('node', True, None), '--note': ('note', True, ''),
-                      '--after': ('after', True, None),
-                      '--spawn': ('spawn', False, False),
-                      '--spawner': ('spawner', True, None)}),
     }
+    #: Verb -> the positionals its parser declares `nargs='*'` or `nargs='+'`: such a positional
+    #: swallows the contiguous run of non-flag tokens where it stands.
+    _VARIADIC = {'hold': ('node',)}
     #: `sw cycle <verb>`: the group's verbs, in the same shape as `_SPEC`. The entry's `route`
     #: is what answers them (keyed off `ns.cycle_command`), so this table and `_CYCLE_CALLS` are one
     #: list of the group's surface: the first is what the argv is parsed with, the second names the
@@ -138,7 +146,6 @@ class FastStateManage:
         'list': ((), {}),
         'current': ((), {}),
         'show': (('id', 'node'), {}),
-        'hold': (('id', 'node'), {}),
         'close': (('id', 'node'), {'--result': ('result', True, None)}),
         'retry': (('id', 'node'), {'--summary': ('summary', True, None),
                                    '--drop': ('drop', False, False)}),
@@ -154,7 +161,6 @@ class FastStateManage:
         'list': lambda mod, ns: mod.cmd_cycle_list(),
         'current': lambda mod, ns: mod.cmd_cycle_current(),
         'show': lambda mod, ns: mod.cmd_cycle_show(ns.id, ns.node),
-        'hold': lambda mod, ns: mod.cmd_cycle_hold(ns.id, ns.node),
         'close': lambda mod, ns: mod.cmd_cycle_close(ns.id, ns.node, ns.result),
         'retry': lambda mod, ns: mod.cmd_cycle_retry(ns.id, ns.node, ns.summary, ns.drop),
     }
@@ -178,8 +184,11 @@ class FastStateManage:
     #: Verb -> the module function that verb runs, as `function(namespace)`.
     _CALLS = {
         'clean-temp': lambda mod, ns: mod.cmd_clean_temp(ns.project, ns.node, ns.yes, ns.force),
+        'plan': lambda mod, ns: mod.cmd_plan(ns),
+        'hold': lambda mod, ns: mod.cmd_hold(ns),
+        'settle': lambda mod, ns: mod.cmd_settle(ns),
+        'advance': lambda mod, ns: mod.cmd_advance(ns),
         'dispatch': lambda mod, ns: mod.cmd_dispatch(ns),
-        'next': lambda mod, ns: mod.cmd_next(ns),
     }
     #: Positional arguments the real parser declares `type=int`.
     _INT_POSITIONALS = set()
@@ -250,7 +259,8 @@ class FastStateManage:
             return self._call(lambda: mod.route(ns))
 
         positional, flags = self._SPEC[argv[0]]
-        ns = self._namespace(argv[1:], positional, flags)
+        ns = self._namespace(argv[1:], positional, flags,
+                             variadic=self._VARIADIC.get(argv[0], ()))
         ns.command = argv[0]
         return self._call(lambda: self._CALLS[argv[0]](mod, ns))
 
@@ -262,8 +272,8 @@ class FastStateManage:
             return e.code or 1
         return 0
 
-    def _namespace(self, argv, positional_names, flag_spec):
-        return _namespace(argv, positional_names, flag_spec,
+    def _namespace(self, argv, positional_names, flag_spec, *, variadic=()):
+        return _namespace(argv, positional_names, flag_spec, variadic=variadic,
                           int_positionals=self._INT_POSITIONALS, int_flags=_INT_FLAGS)
 
 

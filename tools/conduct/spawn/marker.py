@@ -71,7 +71,7 @@ MARKER_NAME = 'CONDUCT-CALLBACK-FAILED-{cycle}.json'
 #: The one sentence the marker writes about itself: where the chain broke, how to take over, when it
 #: may be deleted. Every path that writes it uses this one -- one wording for one thing.
 DEFAULT_NOTE = ('The chain broke here: this step could not start the next one, and the pipeline '
-                'will not move on by itself. To take over by hand use `sw next --after <node_id>` '
+                'will not move on by itself. To take over by hand use `sw settle <node_id>` '
                 '(the closing step) or `sw dispatch <cycle>` (the dispatch step); once you have '
                 'checked that nothing is wrong, delete this file.')
 

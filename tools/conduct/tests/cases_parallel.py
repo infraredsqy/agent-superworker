@@ -16,12 +16,12 @@ With two cycles running side by side (`parallel: worktree` mode), these things r
     Here the five faces of SPAWN.claim prove it: an in-flight claim refuses, a live pid refuses no
     matter how old, a failure releases, and a dead pid's note is judged by staleness -- under 30
     minutes it still refuses, and only once stale is it taken over.
-  * Two lines pinning the same node in the overlapping close window would open two sessions and
-    never close out -- here the cross-cycle guard inside the lock refuses the second pin loudly,
-    while a re-pin of the same id on its own line (restart semantics) passes.
+  * Two lines claiming the same node in the overlapping close window would open two sessions and
+    never close out -- here the cross-cycle guard inside the lock refuses the second claim loudly,
+    while a re-claim of the same id on its own line (restart semantics) passes.
 
-The other half -- the `parallel` policy (how many slots a line holds at once, how a close refills
-them) -- is in `cases_parallel_slots.py`; fork-worktree and its close-time fallback gate are in
+The other half -- the `parallel` policy (how many slots a line holds at once, how a round
+refills them) -- is in `cases_parallel_slots.py`; fork-worktree and its close-time fallback gate are in
 `cases_fork.py` (real git, real CLI; only a file of its own keeps the per-file runtime down; how to
 run it and its registration are in that file's header).
 
@@ -112,7 +112,7 @@ class TestWorktreeRedirect(unittest.TestCase):
         return run_argv([tool, *args], cwd=self.wt, check=False)
 
     def test_a_ledger_write_from_the_worktree_lands_in_the_main_tree(self):
-        proc = self._run(STATE_MANAGE, 'cycle', 'hold', 'cyc', NODE)
+        proc = self._run(STATE_MANAGE, 'hold', NODE, '--cycle', 'cyc')
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
         state = json.loads((self.repo / '.superworker' / 'state.json').read_text(encoding='utf-8'))
@@ -226,8 +226,8 @@ class TestSpawnClaim(unittest.TestCase):
 
 
 class TestOneNodeOneCycle(unittest.TestCase):
-    """cycle hold's cross-cycle guard: a node belongs to one line at a time, and a second line
-    pinning it must be refused by name."""
+    """`hold`'s cross-cycle guard: a node belongs to one line at a time, and a second line
+    claiming it must be refused by name."""
 
     def setUp(self):
         self.sb = Sandbox(cli=True)
@@ -237,8 +237,8 @@ class TestOneNodeOneCycle(unittest.TestCase):
         self.sb.create_cycle('cyc2', force=True)
 
     def test_a_node_shelved_by_another_cycle_refuses_the_pin(self):
-        self.sb.set_current_node(NODE, cycle_id='cyc')
-        proc = self.sb.set_current_node(NODE, cycle_id='cyc2', check=False)
+        self.sb.hold(NODE)
+        proc = self.sb.hold(NODE, cycle_id='cyc2', check=False)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn(NODE, proc.stderr, 'the refusal must name the node')
         self.assertIn('cyc', proc.stderr, 'the refusal must name the cycle that holds it')
@@ -246,11 +246,11 @@ class TestOneNodeOneCycle(unittest.TestCase):
                    if NODE in [h['id'] for h in c.get('holding') or []]]
         self.assertEqual(['cyc'], holders, 'the second pin must not have landed')
 
-    def test_repinning_the_same_id_on_its_own_cycle_stays_legal(self):
-        """Re-pinning the same id on its own line is restart semantics; the guard must not block
+    def test_reclaiming_the_same_id_on_its_own_cycle_stays_legal(self):
+        """Re-claiming the same id on its own line is restart semantics; the guard must not block
         it."""
-        self.sb.set_current_node(NODE, cycle_id='cyc')
-        proc = self.sb.set_current_node(NODE, cycle_id='cyc', check=False)
+        self.sb.hold(NODE)
+        proc = self.sb.hold(NODE, cycle_id='cyc', check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
 

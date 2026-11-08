@@ -1,7 +1,7 @@
-"""`plan()` and the settle-and-close of one node.
+"""`plan()` and the settle of one node.
 
-The stop rule, the read-only planner that returns the one next action, and the close a worker's
-own `next --after <node_id>` performs.
+The stop rule, the read-only planner that returns the one next action, and the settle a worker's
+own `settle <node>` performs.
 """
 
 from __future__ import annotations
@@ -16,7 +16,8 @@ from .nodes import (blocked_reason, holding_ready_nodes, mode_for, node_in_tag_s
                     pick_node, ranked_ready_nodes, tag_blocked_ready_nodes)
 from .prompts import started_marker
 from .actions import (_ask, _close_commands, _dispatch_many, _insertions_due,
-                      _pick_insertions_due, _retry_wait, _sessions_wait, _ticket_wait, _stop_action)
+                      _pick_insertions_due, _retry_wait, _sessions_wait, _ticket_wait,
+                      _stop_action, attention_items)
 
 
 def stop_criterion(project: Path, cycle: dict, node: dict | None, dag: dict | None = None) -> tuple:
@@ -29,10 +30,10 @@ def stop_criterion(project: Path, cycle: dict, node: dict | None, dag: dict | No
     closing beat raises no second gate; `checkpoint`'s gate is on the closing beat: one round runs
     and stops, and the next node opens only once the human has said continue.
 
-    `_close_own_node` uses this same rule for the session's own closing call: `--continue` cannot
-    pry it open, and `--stop` can only tighten it. `dag` is the one graph read at the close entry,
-    handed to the instruction pass's scope judgement (the criterion reads the node's status, and the
-    graph is not read again).
+    `_settle_plan` uses this same rule for the session's own closing call, and nothing a caller says
+    can pry it open: the settle takes no `--continue` / `--stop`, so the rule is the only voice.
+    `dag` is the one graph read at the close entry, handed to the instruction pass's scope judgement
+    (the criterion reads the node's status, and the graph is not read again).
     """
     mode = normalize_mode((node or {}).get('mode'))
     if mode == 'checkpoint':
@@ -51,30 +52,28 @@ def stop_criterion(project: Path, cycle: dict, node: dict | None, dag: dict | No
 
 # ── the pure planner ─────────────────────────────────────────────────────────
 
-def plan(project, cycle_id: str | None = None, decision: str | None = None,
-         node: str | None = None, note: str = '', self_verified: bool = False,
-         after: str | None = None, decision_given: bool = False) -> dict:
+def plan(project, cycle_id: str | None = None, after: str | None = None) -> dict:
     """Read state and return the single next action. Writes nothing.
 
-    `decision` / `node` / `note` are the worker's own closing answers, meaningful only on the call
-    that follows a node whose work has finished (`self_verified`, CLI: `next --after <node_id>`);
-    `after` names that node -- a line can hold several at once, so "which node is this close about"
-    is an argument, not something the cycle's hand can answer. A `--continue` cannot loosen the stop
-    rule; `--stop` and `--node` tighten or aim it.
+    Two readings, one name: with `after` the question is the closing one -- this node's ticket is on
+    disk, and settling it, what would the close record (`_settle_plan`, the rehearsal `sw plan
+    --after` prints). Without it the answer is the step `sw advance` would take: pin the cells the
+    line has free slots for, dispatch the cells whose material is still missing, or wait.
 
-    With `after` absent (an in-process call, an entry point other than the CLI) the one node in hand
-    is taken: a line holding only one has no ambiguity to read.
+    `after` names the node the close is about: a line can hold several at once, so "which node is
+    this close about" is an argument, not something the cycle's hand can answer. Absent it, the one
+    node in hand is taken: a line holding only one has no ambiguity to read.
 
     **Two gates, each minding its own business**:
-      * `next --after <node>` is the gate through which a session closes its own node, and it **does
-        not look at the line's status**: the node itself says which line it belongs to (on the CLI
-        side `resolve_cycle_for_node` settles that), and a stopped line that could not close even
-        its own node would leave that node pinned there forever. When the line is not active this
-        gate only records -- see `_close_own_node`: it writes not one word of status, picks no node
-        and dispatches nothing.
-      * No other `next` drives a line that is not active: it picks nothing, dispatches nothing, and
-        only reports the one command that puts the line back in service. The close path is the only
-        gate into an inactive line.
+      * `settle <node>` is the gate through which a session closes its own node, and it **does not
+        look at the line's status**: the node itself says which line it belongs to (on the CLI side
+        `resolve_cycle_for_node` settles that), and a stopped line that could not close even its own
+        node would leave that node pinned there forever. When the line is not active this gate only
+        records -- see `_settle_plan`: it writes not one word of status, pins no node and opens
+        nothing.
+      * No other step drives a line that is not active: it pins nothing, opens nothing, and only
+        reports the one command that puts the line back in service. The close path is the only gate
+        into an inactive line.
     """
     project = Path(project).resolve()
     state = load_state(project)
@@ -86,7 +85,7 @@ def plan(project, cycle_id: str | None = None, decision: str | None = None,
                         f'{[c["id"] for c in state.get("cycles", [])]}', requested=cycle_id)
         return _no_line(state)
 
-    if cycle.get('status') != 'active' and not self_verified:
+    if cycle.get('status') != 'active' and after is None:
         return _ask(f'cycle {cycle["id"]!r} exists but is not active ({cycle.get("status")})',
                     requested=cycle['id'], candidates=[cycle['id']],
                     hint=f'sw cycle status {cycle["id"]} active')
@@ -99,7 +98,7 @@ def plan(project, cycle_id: str | None = None, decision: str | None = None,
     if not holding:
         return _pick_next(project, cycle, tags)
 
-    if self_verified:
+    if after is not None:
         # The worker's own closing call: settle the node whose signal it already wrote. The other
         # nodes this line holds stay in hand -- each is closed by its own worker's call.
         closing = after or (holding[0] if len(holding) == 1 else None)
@@ -118,9 +117,8 @@ def plan(project, cycle_id: str | None = None, decision: str | None = None,
                     'note': f'{closing[:8]} has not handed in a note yet '
                             f'(signals/{cycle["id"]}/{closing[:8]}….json is absent, or still '
                             f'pending) -- there is nothing to settle.'}
-        return _close_own_node(project, cycle, closing, sig, decision, node, note,
-                               line_active=cycle.get('status') == 'active',
-                               decision_given=decision_given)
+        return _settle_plan(project, cycle, closing, sig,
+                            line_active=cycle.get('status') == 'active')
 
     # Every node in hand has a terminal ticket: the batch is over, and the close is what consumes
     # them -- one per call, the same stable state there has always been. A node whose ticket has
@@ -141,8 +139,40 @@ def plan(project, cycle_id: str | None = None, decision: str | None = None,
             return gated
         return _dispatch_many(project, cycle, waiting, dag=dag)
     if fresh:
+        # The slots a settled node freed: a line wider than one keeps itself full here, on the same
+        # ranking a first pick uses. Nothing ready means the running cells are all there is.
+        dag = load_dag(project)
+        slots = max(cycle_policy(cycle)['parallel'] - len(holding), 0)
+        if slots:
+            filled = _fill_slots(project, cycle, holding, slots, dag, fresh)
+            if filled is not None:
+                return filled
         return _sessions_wait(cycle, fresh, holding)
     return _retry_wait(cycle, holding[0], holding)
+
+
+def _fill_slots(project: Path, cycle: dict, holding: list, slots: int, dag: dict,
+                fresh: list) -> dict | None:
+    """Pin the cells this line has room for -- or `None` when the ranking has nothing to add.
+
+    The one reading behind the fill: the ready set in the graph's order, this line's own hand and
+    every other line's hand taken out, cut to the free slots. The dispatch gate and the pick-time
+    insertion seam are asked exactly where a first pick asks them, because this IS a pick, made on a
+    line that already holds cells.
+    """
+    ready = ranked_ready_nodes(project, limit=slots, exclude_many=holding,
+                               tags=cycle.get('tags') or [], dag=dag)
+    if not ready:
+        return None
+    gated = _plugin_gate(project, cycle, [n['id'] for n in ready], dag)
+    if gated is not None:
+        return gated
+    offers = _plugin_pick_insertions(project, cycle, dag, ready[0])
+    if offers:
+        action = _pick_insertions_due(project, cycle, offers, ready[0])
+        if action is not None:
+            return action
+    return _open(project, cycle, ready)
 
 
 def _no_line(state: dict) -> dict:
@@ -179,7 +209,7 @@ def _pick_next(project: Path, cycle: dict, tags) -> dict:
     (`pick_node` takes the top row), so a line's first pick takes the same rows the fill would.
     The line fills the slots its `parallel` policy allows -- one pin per slot, in ranking order --
     and the pipeline never stops here: a human who wants a different one names it (`--node`,
-    `cycle hold`). A plugin may put a node in front of the pick (`_plugin_pick_insertions`); that
+    `hold`). A plugin may put a node in front of the pick (`_plugin_pick_insertions`); that
     answer is a graph edit with no pins, so the pick itself is then made on the next step, with the
     inserted node in the same ranking.
     """
@@ -214,7 +244,11 @@ def _pick_next(project: Path, cycle: dict, tags) -> dict:
 
 
 def _open(project: Path, cycle: dict, nodes: list) -> dict:
-    """Point the cycle at one or more nodes. `apply` runs the pins and re-plans into the dispatch."""
+    """Point the cycle at one or more nodes: the claim's own reading, ready to be applied.
+
+    `hold` is the word that writes it, one call per node, and `apply` runs them. The dispatch that
+    follows is a separate reading of the same state -- claiming and opening are two words.
+    """
     nodes = list(nodes)
     head = nodes[0]
     titles = ', '.join(n.get('title') or n['id'] for n in nodes)
@@ -222,7 +256,7 @@ def _open(project: Path, cycle: dict, nodes: list) -> dict:
             'node_id': head['id'], 'node_title': head.get('title', ''),
             'nodes': [n['id'] for n in nodes],
             'note': f'cycle {cycle["id"]} holds {titles}',
-            'commands': [seam.cmd('cycle', 'hold', cycle['id'], n['id']) for n in nodes]}
+            'commands': [seam.cmd('hold', n['id'], '--cycle', cycle['id']) for n in nodes]}
 
 
 def _park_commands(cycle: dict) -> list:
@@ -235,101 +269,63 @@ def _park_commands(cycle: dict) -> list:
     return [seam.cmd('cycle', 'status', cycle['id'], 'inactive')]
 
 
-def _close_own_node(project: Path, cycle: dict, node_id: str, sig: dict,
-                    decision: str | None, node_arg: str | None, note: str,
-                    line_active: bool = True, decision_given: bool = False) -> dict:
-    """Turn the worker's own closing call into the mechanical close: record the step, fill the
-    slots the close freed, or stop.
+def _settle_plan(project: Path, cycle: dict, node_id: str, sig: dict,
+                 line_active: bool = True) -> dict:
+    """Record one node's end: the step, the graph mark, the close-time seam. Nothing else.
 
-    **One ladder, one entry.** Every question a close asks -- did it deliver, may the line run on,
-    who fills the freed slots, and why it stopped -- is answered in this one name, for a line that
-    holds one node and for one that holds several alike. How many slots the line holds at once
-    (`parallel`) and how many are still in hand (`others`) are parameters, and they decide four
-    things:
-
-      * how many nodes this close opens -- one per free slot (see the fill below);
-      * where the stop rule sits -- a one-slot line asks it whatever the graph has next (that close
-        is its whole round), a line holding several asks it only when the refill comes up empty (a
-        slot that can be refilled carries the line on);
-      * the shape of the answer -- a one-slot line's open names its one node, a list close's carries
-        the `nodes` list its dispatch is built from;
-      * which reading the blocked reason uses when nothing was filled -- a one-slot close counts
-        this node as delivered, so the dependents it just un-blocked are the work it names, while a
-        list close reads the graph as it stands on disk (the asymmetry is deliberate).
+    **A settle records; it does not advance.** It pins no node, lands no prompt, opens no session
+    and moves no slot -- the next node is `advance`'s step (or a human's `hold`), and the session
+    that runs it is `dispatch`'s. What it does own is the line's one stop decision: a `checkpoint`
+    round ends at its close, a non-delivered node the `when_shelved` policy says stop ends it, and a
+    graph with nothing ready ends it -- so a line whose round is over is turned `inactive` here, in
+    the same call that records the node. The criterion is the node's own `mode` and the line's own
+    policies; there is no `--continue` / `--stop` for a caller to contradict it with (why only a
+    human writes `active`, and why the gate sits here, see `docs/conduct-state.md` "the two ways
+    in").
 
     The outcome comes from the signal the worker already wrote ("completed" = it delivered,
-    "failed"/"stopped" = it did not), so there is always an answer and nobody to ask. The stop rule
-    is computed and enforced here: with no boundary session left, a `--continue` that contradicts
-    it would be the hole the rule exists to close.
+    "failed"/"stopped" = it did not), so there is always an answer and nobody to ask. The verdict
+    word goes onto the line's path, the graph row lands `completed` / `shelved`.
 
     The other nodes this line holds stay in hand -- each one is settled by its own worker's call,
-    and a settle only ever moves its own node. What this call adds on top is the FILL: the close
-    frees one slot per node it puts down (`parallel` minus the slots still in hand), and a slot that
-    is free is filled from the ready set right here, so a multi-node line keeps itself running
-    without a second driver.
+    and a settle only ever moves its own node. The slot this close frees is filled by the next
+    `advance` (`plan`'s free-slot reading), not here: what this pass reads the ready set for is the
+    decision ("is there something to carry on to") and the close seam's target.
 
     `line_active=False` -- this line is not in service (a human turned it inactive): closing is still
-    the session's right (otherwise that node would stay pinned forever), but it records only. The
-    stop rule, the next-node pick and `--node` all stay out of it, `--continue` has no say here, and
-    not one word of the line's status is written -- it keeps the status the human gave it.
+    the session's right (otherwise that node would stay pinned forever), but it records only -- not
+    one word of the line's status is written, and it keeps the status the human gave it.
 
     This closing pass **reads the graph once** (the `dag` below) and hands it down as an argument:
-    the stop rule (the node's own mode, plus the instruction pass's scope judgement), the fill list,
-    the blocked reason, the dispatch gate, the plugins' insertion judgement and the attention list
-    all read it -- so stop, fill, cannot-fill, gate-refused and naming-outside-scope each read it
-    that one time.
-
-    **A close that fills a slot asks the dispatch gate before it hands the fill over.** The fill is
-    the first half of a dispatch (its commands pin the nodes), so a gate that refuses it must refuse
-    BEFORE the pins: the answer then settles this node, pins nobody and writes no prompt, and the
-    line stays in service for the next step to ask again -- the same shape the pick path has.
+    the stop rule (the node's own mode, plus the instruction pass's scope judgement), the list the
+    decision reads, the blocked reason, the plugins' insertion judgement and the attention list all
+    read it that one time.
     """
     dag = load_dag(project)
-    named = node_arg                    # the name a human typed; it may not travel on below
-    spoken_name = named                 # the reason names it; clearing below does not affect it
     delivered = sig.get('status') == 'completed'
     policy = cycle_policy(cycle)
-    # A node that did not deliver is always shelved; whether to carry on is decided by this line's
-    # `when_shelved` policy alone (default: stop).
     policy_carries = policy.get('when_shelved') == 'continue'
     carry_on = delivered or policy_carries
     others = [x for x in _holding_ids(cycle) if x != node_id]
     if not line_active:
-        decision, named, carry_on = 'stop', None, False
-    decision = decision or ('continue' if carry_on else 'stop')
+        carry_on = False
+    decision = 'continue' if carry_on else 'stop'
     tags = cycle.get('tags') or []
-    # How many slots this close may open, and whether this line fills them one at a time or several
-    # at once: the line's own `parallel` minus what is still in hand. These two numbers are the
-    # whole of the difference between a one-slot close and a list close.
     parallel = policy['parallel']
     slots = max(parallel - len(others), 0)
     several = parallel > 1
 
     # The close commands have not run yet, so the DAG still has this node `todo`. Reading it as
     # completed is what un-blocks its dependents for this one question -- excluding it would only
-    # hide the node, and the fill would then miss the very nodes it just un-blocked.
+    # hide the node, and the reading would then miss the work it just un-blocked.
     assumed = [node_id] if delivered else []
 
-    # ── the fill: every free slot gets one node ──────────────────────────────
+    # ── what the line would carry on to: read for the decision, never pinned here ──
     filled: list = []
-    spoke = ''
     if carry_on and decision == 'continue' and slots:
-        if named:
-            # A hand-named node is taken whether or not the filter set covers it, and the note says
-            # so out loud: a filter silently swallowing a node somebody typed in full would hide the
-            # one decision a human just made.
-            chosen = pick_node(project, named, exclude=node_id, exclude_many=others,
-                               assume_completed=assumed, tags=tags, dag=dag)
-            if chosen is not None:
-                filled = [chosen]
-            if chosen and not node_in_tag_scope(chosen, tags):
-                spoke = (f'Note: the named {chosen.get("title") or chosen["id"]}'
-                         f' ({chosen["id"]}) is not in this cycle\'s filter set {list(tags)};'
-                         f' you named it by hand, so it is taken as named.')
-        else:
-            filled = ranked_ready_nodes(project, limit=slots, exclude=node_id,
-                                        exclude_many=others, assume_completed=assumed,
-                                        tags=tags, dag=dag)
+        filled = ranked_ready_nodes(project, limit=slots, exclude=node_id,
+                                    exclude_many=others, assume_completed=assumed,
+                                    tags=tags, dag=dag)
 
     # ── the stop rule: where it sits is the parameter above ──────────────────
     stop_why = ''
@@ -352,55 +348,40 @@ def _close_own_node(project: Path, cycle: dict, node_id: str, sig: dict,
         # A line that is not in service: records only. Close this node, mark the DAG, then stop --
         # not even the line's status is written.
         reason = (f'cycle {cycle["id"]!r} is not active ({cycle.get("status")}): a close on this '
-                  f'line only records -- it closes {node_id[:8]} and marks the DAG, picks no next '
-                  f'node and dispatches nothing; the line keeps the status it was given.')
-        if spoken_name:
-            reason += f' The named node {spoken_name} was not opened.'
+                  f'line only records -- it closes {node_id[:8]} and marks the DAG, pins no next '
+                  f'node and opens nothing; the line keeps the status it was given.')
         reason += f' To carry on: sw cycle status {cycle["id"]} active'
-        cmds = _close_commands(project, cycle, node_id, outcome, 'stop', None, park=False)
-        return _stop_action(project, cycle, reason, cmds, node_id=node_id, shelved_nodes=shelved,
-                            dag=dag)
+        cmds = _close_commands(project, cycle, node_id, outcome)
+        return _settle_action(project, cycle, node_id, outcome, delivered, cmds, parked=False,
+                              reason=reason, shelved=shelved, dag=dag)
 
     if decision == 'stop' or not filled:
         # With other nodes still in flight this line is not stopped: those nodes are still held, so
         # the line has not stopped, and the baton is on their own closes -- parking it would make
         # their closes record-only, and the work they free would have nobody to take it up.
         park_line = decision == 'stop' or not others
-        cmds = _close_commands(project, cycle, node_id, outcome, 'stop', None, park=park_line)
+        cmds = _close_commands(project, cycle, node_id, outcome, park=park_line)
         open_notes = (f' (still holding {", ".join(x[:8] for x in others)}, their notes are '
-                      f'collected as they arrive)'
-                      if decision == 'stop' and others else '')
+                      f'collected as they arrive)' if decision == 'stop' and others else '')
         if not delivered and not policy_carries:
-            slipped = note or sig.get('summary') or '(no reason written)'
+            slipped = sig.get('summary') or '(no reason written)'
             reason = f'this node did not deliver ({outcome}): {slipped}'
         elif stop_why:
-            reason = f'{stop_why} ({note})' if note else stop_why
+            reason = stop_why
             # The middle tier stops to wait for a human's "continue" -- stopping turns the line
             # inactive, so hand over both commands (back in service, and carry on); otherwise
             # "continue" would have to guess how to continue.
             if mode_for(node_id, dag) == 'checkpoint':
                 reason += (f'; to carry on: sw cycle status {cycle["id"]} active, '
-                           f'then sw next --cycle {cycle["id"]} --spawn --json')
-        elif named:
-            reason = (f'the node {named} named by the instruction is not a ready node; '
-                      f'stopping here')
-            outside = _named_node_outside_scope(dag, named, tags)
-            if outside:
-                reason += (f'; it is also not in this cycle\'s filter set {list(tags)}'
-                           f' (its tags={outside})')
-        elif decision_given:
-            # A hand-given --stop: this reason has to say a human stopped it, and must not read as
-            # "the graph has no work left".
-            reason = ('the human chose to stop at the close (--stop): the line goes back to you'
-                      + (f' ({note})' if note else ''))
+                           f'then sw advance --cycle {cycle["id"]} --json')
         elif not filled and carry_on:
             # Nothing is being filled: either this line still holds work (the baton is on those
             # closes), or the graph has nothing it can pick -- and then say which of the two.
             if others:
-                reason = (f'{node_id[:8]} is closed; still holding '
+                reason = (f'{node_id[:8]} is settled; still holding '
                           f'{", ".join(x[:8] for x in others)}, their notes are collected as they '
-                          f'arrive (sw next --after <node id> --json) -- this line stays in '
-                          f'service, and on its own close that slot fills and dispatches.')
+                          f'arrive (sw settle <node id> --json) -- this line stays in service, and '
+                          f'the next advance fills the freed slot.')
             else:
                 # What a one-slot line's close counts as delivered is this node: the dependents it
                 # just unblocked are the work the reader is looking for. A list close reads the
@@ -416,77 +397,77 @@ def _close_own_node(project: Path, cycle: dict, node_id: str, sig: dict,
                 else:
                     reason = 'the graph has no ready node left'
         else:
-            reason = f'stopping at the close: {note or "(no reason written)"}'
+            reason = f'stopping at the close: {stop_why or "the round is over"}'
         if open_notes:
             reason += open_notes
-        # `shelved` is empty for a node that closed as completed: naming it here would hand the
-        # reader a revive hint for work that succeeded.
-        return _stop_action(project, cycle, reason, cmds, node_id=node_id, shelved_nodes=shelved,
-                            stop_line=park_line, dag=dag)
+        return _settle_action(project, cycle, node_id, outcome, delivered, cmds,
+                              parked=park_line, reason=reason, shelved=shelved, dag=dag)
 
-    # ── the dispatch gate, before the pins it would refuse ───────────────────
-    # The commands below ARE the first half of a dispatch: they close this node and hold the fill.
-    # Asked at the dispatch built out of them it would be too late -- the successor would be pinned
-    # with no prompt and no session, while the answer still claimed nothing was. So it is asked
-    # here, on the fill, exactly as `_pick_next` asks it before its pins.
-    refused = _gate_reasons(project, cycle, [n['id'] for n in filled], dag)
-    if refused:
-        # The gate is about opening a session, not about the close: this node is settled all the
-        # same (the commands below close it and mark the DAG), but nobody is pinned and no prompt is
-        # written. The line stays in service, so the next step asks the gate again.
-        closed_only = _close_commands(project, cycle, node_id, outcome, 'stop', None, park=False)
-        return _stop_action(
-            project, cycle,
-            _gate_says(refused) +
-            f'. {node_id[:8]} is settled all the same -- closing it pins nothing and needs no '
-            f'session -- but no next node was pinned and no prompt was written; the line stays in '
-            f'service, and the next step will ask the gate again.',
-            closed_only, node_id=node_id, shelved_nodes=shelved, dag=dag, stop_line=False)
-
-    # The whole fill list is handed over, not just its head: as many free slots as there are
-    # (`parallel` minus what is still held) get filled, and every one has to be pinned -- pinning
-    # only the head leaves the rest of the slots quietly empty.
-    cmds = _close_commands(project, cycle, node_id, outcome, 'continue', filled)
+    # ── the close-time seam: what the plugins want in front of the next node ──
     # The plugins' one judgement, at the one moment it can be made: the settle that closes a node is
-    # the only place a reading and a freshly picked successor are both in hand. With nothing
-    # configured no plugin offers anything and this whole pass costs one dict lookup.
+    # the only place a reading and the node this close would run next are both in hand. With nothing
+    # configured no plugin offers anything and this whole pass costs one dict lookup. An inserted
+    # node is wired in front of `filled[0]` -- the next node this line would pick -- so the ordinary
+    # ranking takes it first. An insertion pins nothing and opens nothing, exactly like the settle
+    # it rides on.
     offers = _plugin_insertions(project, cycle, node_id, sig, dag, filled[0])
     if offers:
-        # The insertion action is a close that also edits the graph, so it carries the same close
-        # commands (`_close_commands` with no successor) ahead of its own edits: they run after the
-        # closed node is marked. The graph edit itself pins no node -- it mints one, writes its spec
-        # and wires its edges -- and no dispatch follows it.
+        settled_cmds = _close_commands(project, cycle, node_id, outcome)
         inserted = _insertions_due(project, cycle, node_id, offers, filled[0],
-                                   # park=False: the insertion pins nothing and no dispatch follows
-                                   # it, so a `cycle status inactive` here would take the line out of
-                                   # service and the next pick would never reach the inserted nodes.
-                                   # The line has to stay in service for the usual ranking to pick
-                                   # them up. `filled[0]` is the pick they stand in front of; the
-                                   # rest of the fill is pinned here like any other close's fill.
-                                   close_commands=_close_commands(project, cycle, node_id, outcome,
-                                                                  'continue', filled[1:],
-                                                                  park=False),
-                                   extra_note=spoke)
+                                   close_commands=settled_cmds)
         if inserted is not None:
-            return inserted
+            titles = ', '.join(item.get('title') or '(untitled)'
+                               for item in inserted.get('insertions') or [])
+            reason = (f'{node_id[:8]} settled; {len(inserted.get("insertions") or [])} node(s) '
+                      f'inserted in front of the next pick ({titles}) -- commit and push, then '
+                      f'run `sw advance --cycle {cycle["id"]} --json`')
+            action = _settle_action(project, cycle, node_id, outcome, delivered,
+                                    list(inserted.get('commands') or []), parked=False,
+                                    reason=reason, shelved=shelved, dag=dag, inserted=inserted)
+            return action
         # `None` = every offer was skipped (a plugin whose text builder raises): this close goes on
-        # as the ordinary one below -- the node is settled, the slot filled, the next session asked
-        # for. One broken folder must not freeze the line at its close.
-    # The pointer is NOT pinned here: the returned `open_node` is what `apply` runs, and it re-plans
-    # into the dispatch through the same `_open` path a cycle with no node in hand uses. The shape
-    # follows the line: a one-slot close names its one node, a list close carries `nodes`.
-    opened = {'action': 'open_node', 'cycle': cycle['id'], 'node_id': filled[0]['id'],
-              'node_title': filled[0].get('title', '')}
-    if several:
-        opened['nodes'] = [n['id'] for n in filled]
-        opening = ', '.join(n.get('title') or n['id'] for n in filled)
-    else:
-        opening = filled[0].get('title', '')
-    opened['note'] = f'{node_id[:8]} closed; opening {opening}' + (f'; {spoke}' if spoke else '')
-    opened['follow'] = {'action': 'dispatch', 'cycle': cycle['id'],
-                        'node_id': filled[0]['id'], 'node_title': filled[0].get('title', '')}
-    opened['commands'] = cmds
-    return opened
+        # as the ordinary one below. One broken folder must not freeze the line at its close.
+
+    cmds = _close_commands(project, cycle, node_id, outcome)
+    following = filled[0].get('title') or filled[0]['id']
+    reason = (f'{node_id[:8]} settled; {following} ({filled[0]["id"]}) is what this line would run '
+              f'next -- commit and push, then run `sw advance --cycle {cycle["id"]} --json`')
+    return _settle_action(project, cycle, node_id, outcome, delivered, cmds, parked=False,
+                          reason=reason, shelved=shelved, dag=dag)
+
+
+def _settle_action(project: Path, cycle: dict, node_id: str, outcome: str, delivered: bool,
+                   cmds: list, *, parked: bool, reason: str, shelved=(), dag: dict | None = None,
+                   inserted: dict | None = None) -> dict:
+    """One node's settle as the caller reads it: what was recorded, and whether the line parked.
+
+    The shape is deliberately neither a dispatch nor a stop package: a settle records one node's end
+    and moves nothing else. `parked` is the one line-level fact it carries -- the stop rule said this
+    round was over and the line was turned `inactive` -- and `note` says why, in the rule's own
+    words. `inserted` is the insertion action the close seam built (a plugin's offer); its graph
+    edits ride ahead of this close's own commands, and its minted uuid is filled by the writer.
+    """
+    title = (node_row(dag or {}, node_id) or {}).get('title', '')
+    action = {
+        'action': 'settle', 'cycle': cycle['id'], 'node_id': node_id, 'node_title': title,
+        'result': outcome, 'delivered': delivered,
+        'graph': 'completed' if delivered else 'shelved',
+        'parked': parked, 'note': reason,
+        'attention': attention_items(project, cycle, shelved, dag=dag),
+        'commands': cmds,
+    }
+    if inserted is not None:
+        # The insertion action's reader-facing cells, mirrored onto the settle it rides on: the
+        # renderer prints the first insertion from these top-level keys and the rest from
+        # `insertions[1:]`, so a `why` / `before_node` left behind would be a line nobody prints.
+        for key in ('insertions', 'steps', 'spec', 'add_command', 'why', 'before_node',
+                    'before_title'):
+            if key in inserted:
+                action[key] = inserted[key]
+        # The insertion's own `node_id` is the NEW_NODE placeholder until `apply` mints it; the
+        # settled node keeps its own id on this action, so the two never collide.
+        action['inserted_node'] = inserted.get('node_id')
+    return action
 
 
 def _plugin_pick_insertions(project: Path, cycle: dict, dag: dict,
@@ -544,10 +525,9 @@ def _plugin_gate(project: Path, cycle: dict, node_ids, dag: dict | None = None) 
 
     A gate sits at the dispatch -- the one moment "does anybody mind another session opening now?"
     can be answered -- and **it is asked before anything is pinned or written, on every path**: the
-    pick asks it before its pins (`_pick_next`), a close asks it before the pins its fill hands over
-    (`_close_own_node`), and the dispatch the writer builds from either comes after. A refused
-    dispatch therefore leaves no node held, no prompt file and no session; a refused close-driven
-    dispatch still settles the node that was closing, and pins nobody.
+    pick asks it before its pins (`_pick_next`), the free-slot fill asks it before its own pins
+    (`_fill_slots`), and the dispatch the writer builds from either comes after. A refused dispatch
+    therefore leaves no node held, no prompt file and no session.
 
     **A refused dispatch does not park the line.** The contract's own example is a gate about time,
     and the pipeline is not a resident process: whatever wakes it only knows how to run one more
@@ -559,12 +539,16 @@ def _plugin_gate(project: Path, cycle: dict, node_ids, dag: dict | None = None) 
     reasons = _gate_reasons(project, cycle, node_ids, dag)
     if not reasons:
         return None
-    return _stop_action(
+    answer = _stop_action(
         project, cycle,
         _gate_says(reasons) +
         '. No session was opened, no prompt was written and nothing was pinned; the line stays in '
         'service, and the next step will ask the gate again.',
         [], dag=dag, stop_line=False)
+    # Which stop this is: a gate's refusal reads like a plan that stopped, and the writer must not
+    # park the line on it (the line is deliberately left in service so the next step asks again).
+    answer['gate'] = True
+    return answer
 
 
 def _named_node_outside_scope(dag: dict, node_id: str, tags) -> list | None:

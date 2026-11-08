@@ -348,7 +348,7 @@ class PluginBase(Base):
     def finished_head(self, *, reading=None):
         """The same line, one step on: the head's ticket is on disk and its close has not run."""
         sb = self.coding_line()
-        sb.next()
+        sb.advance()['plan']
         outputs = {'deliverable': 'x'}
         if reading is not None:
             outputs['reading'] = reading
@@ -529,8 +529,10 @@ class TestTheRegistry(PluginBase):
         self.assertEqual([], pipeline.insertions('close', pipeline.Context(
             sb.root, cycle=sb.cycle(), node_id=NODE, sig=sb.read_signal('cyc', NODE),
             dag=sb.dag())))
-        action = sb.close_round(NODE)
-        self.assertEqual('dispatch', action['action'], 'a broken folder stopped the close')
+        action = sb.settle(NODE)
+        self.assertEqual('settle', action['action'], 'a broken folder stopped the settle')
+        self.assertFalse(action['parked'])
+        self.assertFalse(action.get('insertions'), 'a broken folder inserted a node')
 
     def test_a_declared_layers_cell_narrows_the_knob_and_is_validated(self):
         """A declaration may narrow which layers its knob takes, and the merged cell is where the
@@ -578,9 +580,10 @@ class TestTheRegistry(PluginBase):
         self.assertIn('"reading"', text, 'a threshold in force was never asked at the form')
         self.assertIn('audit_score', text)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('insert_node', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
+        self.assertTrue(action.get('insertions'), 'the settle did not judge against the default')
         self.assertEqual(3, len(sb.dag()['nodes']), 'the close did not judge against the default')
 
     def test_a_name_two_plugins_claim_is_reported(self):
@@ -746,16 +749,17 @@ class TestASourceAPluginClaims(PluginBase):
         self.assertEqual([], pipeline.ticket_readings(sb.root, sb.cycle()),
                          'the session was asked for a number it never measures')
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('insert_node', action['action'], action)
-        made = action['node_id']
+        self.assertEqual('settle', action['action'], action)
+        self.assertTrue(action.get('insertions'), action)
+        made = action['inserted_node']
         self.assertIn('feed 5', sb.dag()['nodes'][made]['title'],
                       f'the number came from somewhere else: {sb.dag()["nodes"][made]["title"]}')
         spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         self.assertIn('feed 5', spec, 'the generated spec missed the number its source computed')
 
-    def test_pf_doctor_lists_the_claim_and_passes(self):
+    def test_sw_doctor_lists_the_claim_and_passes(self):
         """The doctor's own door: the claimed source is on its listing beside the function that
         computes it, and this checkout has nothing to report about the fixture."""
         self.one()
@@ -784,11 +788,13 @@ class TestASourceAPluginClaims(PluginBase):
 
         sb = self.finished_head()
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual(2, len(sb.dag()['nodes']), 'a plugin the doctor rejects was asked anyway')
-        self.assertEqual([NODE2], sb.holding_ids())
+        self.assertFalse(action.get('insertions'), 'a rejected plugin inserted a node')
+        self.assertEqual([], sb.holding_ids(), 'the settle claimed the successor')
+        self.assertEqual(NODE2, sb.advance()['plan']['node_id'], 'the ordinary step did not run on')
 
     def test_a_source_the_core_serves_cannot_be_claimed(self):
         """The core's own name is its statement of where a number comes from: a claim on it is a
@@ -887,9 +893,10 @@ class TestASourceAPluginClaims(PluginBase):
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
+        self.assertFalse(action['parked'])
         self.assertEqual(2, len(sb.dag()['nodes']), 'a failing source still inserted a node')
         self.assertIn("WARNING: plugin feed failed to compute 'feed_score'", err.getvalue())
         self.assertIn('the fixture tool is down', err.getvalue())
@@ -897,27 +904,28 @@ class TestASourceAPluginClaims(PluginBase):
 
 class TestTheDeletedPluginFolder(PluginBase):
     """The completion criterion the other way round: with no plugin folder installed, the pipeline
-    still closes, still dispatches, and its close is byte-for-byte the one it always gave."""
+    still settles, still runs on, and its settle is byte-for-byte the one it always gave."""
 
     def test_a_line_that_carries_a_threshold_closes_and_dispatches(self):
-        """A line whose ledger still carries a hand-written threshold: no plugin reads it, so the close
-        is an ordinary dispatch and the graph does not grow."""
+        """A line whose ledger still carries a hand-written threshold: no plugin reads it, so the
+        settle is an ordinary one and the graph does not grow."""
         self.plugins()
         sb = self.coding_line()
         sb.rewrite_cycle(policies={'test_seconds_limit': 5, 'issue_pool_weight_limit': 1})
-        sb.next()
+        sb.advance()['plan']
         sb.write_signal('cyc', NODE, 'completed', 'done',
                         {'deliverable': 'x', 'reading': {'test_seconds': 999}})
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
-        self.assertEqual(action['node_id'], NODE2)
+        self.assertEqual('settle', action['action'], action)
+        self.assertFalse(action['parked'])
         self.assertEqual(2, len(sb.dag()['nodes']), 'a node was inserted with no plugin installed')
         self.assertEqual(sb.path_nodes(), [NODE])
-        self.assertEqual([NODE2], sb.holding_ids())
+        self.assertEqual([], sb.holding_ids(), 'the settle claimed the successor')
+        self.assertEqual(NODE2, sb.advance()['plan']['node_id'], 'the ordinary step did not run on')
         self.assertTrue((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE2 / 'prompt.txt')
-                        .is_file(), 'the close did not write the next prompt')
+                        .is_file(), 'the advance did not write the next prompt')
 
     def test_the_close_is_byte_for_byte_the_control(self):
         """Two projects, one of them carrying a threshold in its ledger: with no plugin installed the
@@ -931,16 +939,16 @@ class TestTheDeletedPluginFolder(PluginBase):
 
         self.plugins()
         control = self.coding_line()
-        control.next()
+        control.advance()
         control.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
 
         carrying = self.coding_line()
         carrying.rewrite_cycle(policies={'test_seconds_limit': 5})
-        carrying.next()
+        carrying.advance()
         carrying.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
 
-        self.assertEqual(normalise(control.close_round(NODE)),
-                         normalise(carrying.close_round(NODE)))
+        self.assertEqual(normalise(control.settle(NODE)),
+                         normalise(carrying.settle(NODE)))
         for rel in ('.superworker/ideas.json', '.superworker/state.json'):
             self.assertEqual(walked(json.loads(control.tree_contents()[rel])),
                              walked(json.loads(carrying.tree_contents()[rel])),
@@ -952,7 +960,7 @@ class TestTheDeletedPluginFolder(PluginBase):
         self.plugins()
         sb = self.coding_line()
         sb.rewrite_cycle(policies={'issue_pool_weight_limit': 1})
-        sb.next()
+        sb.advance()['plan']
         sb.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
 
         seen = []
@@ -963,7 +971,7 @@ class TestTheDeletedPluginFolder(PluginBase):
             return real(argv, cwd)
 
         with patched(pipeline, '_capture', spy):
-            sb.close_round(NODE)
+            sb.settle(NODE)
 
         pool = [call for call in seen if 'issue_manager.py' in ' '.join(call)]
         self.assertEqual([], pool, f'the pool tool was asked: {pool}')
@@ -994,7 +1002,7 @@ class TestTheDispatchGate(PluginBase):
         action = sb.plan()
 
         self.assertEqual('stop_pipeline', action['action'], action)
-        self.assertEqual([], action['commands'], 'a refused dispatch handed over a command')
+        self.assertNotIn('commands', action, 'a refused dispatch handed over a command')
         self.assertIn('plugin gate blocked this dispatch', action['reason'])
         self.assertIn('the fixture gate says not now', action['reason'])
         self.assertEqual('active', sb.cycle()['status'], 'a gate parked the line')
@@ -1023,27 +1031,33 @@ class TestTheDispatchGate(PluginBase):
             asked.append(timing)
             return real(timing, ctx)
 
-        with patched(pipeline.plugin_host, 'gates', spy):
-            refused = sb.close_round(NODE)
+        settled = sb.settle(NODE)
+        self.assertEqual('settle', settled['action'], settled)
+        self.assertFalse(settled['parked'])
+        self.assertEqual([], asked, 'a settle pins nothing, so it asks no dispatch gate')
+        self.assertEqual([NODE], sb.path_nodes(), 'the settle did not record its node')
+        self.assertEqual([], sb.holding_ids(), 'the settle claimed a node')
 
-        self.assertEqual('stop_pipeline', refused['action'], refused)
-        self.assertEqual(['dispatch'], asked, f'the close asked the gate {asked}')
-        self.assertEqual(1, refused['reason'].count('the fixture gate says not now'),
-                         f'the refusal is not named exactly once: {refused["reason"]!r}')
-        self.assertIn(f'{NODE[:8]} is settled', refused['reason'])
-        self.assertIn('no next node was pinned', refused['reason'])
-        self.assertEqual([NODE], sb.path_nodes(), 'the refused close did not settle its node')
-        self.assertEqual([], sb.holding_ids(), 'a refused close-driven dispatch pinned a node')
-        self.assertEqual('active', sb.cycle()['status'], 'a refused close-driven dispatch parked '
-                                                         'the line')
+        with patched(pipeline.plugin_host, 'gates', spy):
+            refused = sb.advance()
+
+        self.assertEqual('dispatch', asked[0], f'the advance asked the gate {asked}')
+        self.assertTrue(all(timing == 'dispatch' for timing in asked),
+                        f'the advance asked the gate at another timing too: {asked}')
+        self.assertEqual([], refused['pinned'], 'a refused advance claimed a node')
+        self.assertEqual('stop_pipeline', refused['plan']['action'], refused['plan'])
+        self.assertEqual(1, refused['plan']['reason'].count('the fixture gate says not now'),
+                         f'the refusal is not named exactly once: {refused["plan"]["reason"]!r}')
+        self.assertEqual([], sb.holding_ids(), 'a refused advance pinned a node')
+        self.assertEqual('active', sb.cycle()['status'], 'a refused advance parked the line')
         launch = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc'
         self.assertFalse((launch / NODE2 / 'prompt.txt').exists(),
-                         'a refused close-driven dispatch wrote the successor\'s prompt')
+                         'a refused advance wrote the successor\'s prompt')
 
         # the gate is the only thing in the way, so switching it off lets that dispatch happen
         _run_proc(sb.root, [STATE_MANAGE, 'config', 'set', 'gate_on', 'off'])
 
-        dispatched = sb.next()
+        dispatched = sb.advance()['plan']
 
         self.assertEqual('dispatch', dispatched['action'], dispatched)
         self.assertEqual(NODE2, dispatched['node_id'])
@@ -1065,7 +1079,7 @@ class TestTheDispatchGate(PluginBase):
         self.assertEqual('dispatch', action['action'], action)
         self.assertEqual(NODE, action['node_id'])
 
-    def test_pf_dispatch_consults_the_same_gate(self):
+    def test_sw_dispatch_consults_the_same_gate(self):
         """The standalone `sw dispatch <cycle>` verb is a dispatch: the gate answers there too.
 
         Without it, `sw dispatch` would be the way around a gate -- the same session the `next` path
@@ -1073,7 +1087,7 @@ class TestTheDispatchGate(PluginBase):
         prompt the last close wrote is still sitting there for a retry once the gate is satisfied.
         """
         sb = self.coding_line()
-        sb.next()                                  # pins NODE and writes its prompt (no gate yet)
+        sb.advance()['plan']                                  # pins NODE and writes its prompt (no gate yet)
         prompt = sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE / 'prompt.txt'
         self.assertTrue(prompt.is_file(), 'the fixture has no prompt to start')
         write_plugin(self.plugins(), 'gate', block_decl(), BLOCK_IMPL)
@@ -1092,7 +1106,7 @@ class TestTheDispatchGate(PluginBase):
         """The same verb with an empty plugins directory dispatches as it always did -- the gate is
         additive, and the drill switch keeps the session itself in the report."""
         sb = self.coding_line()
-        sb.next()
+        sb.advance()['plan']
         self.plugins()
 
         proc = sb.dispatch(cli=True, check=False)
@@ -1141,12 +1155,16 @@ class TestThePickTiming(PluginBase):
         self.assertEqual(2, len(sb.dag()['nodes']), 'plan wrote the node it only promised')
         self.assertIn('in front of', ' '.join(planned['steps']))
 
-        walked = sb.next()
+        receipt = sb.advance()
 
-        self.assertEqual('insert_node', walked['action'], walked)
+        # The insertion is what this step carried out (`acted`), and it is where the word stops: the
+        # node is in the graph, nothing is claimed and no session opens.
+        self.assertEqual('insert_node', receipt['acted']['action'], receipt['acted'])
+        self.assertFalse(receipt['pinned'], 'an insertion claims nobody')
         nodes = sb.dag()['nodes']
         made = [uid for uid in nodes if uid not in (NODE, NODE2)]
         self.assertEqual(1, len(made), f'the pick inserted no node: {nodes}')
+        self.assertEqual([made[0]], receipt['inserted'], f'the receipt names no insertion: {receipt}')
         self.assertEqual([], nodes[made[0]]['dependencies'],
                          'a pick insertion has no parent: it is ready when it exists')
         self.assertIn(FIXTURE_TAG, nodes[made[0]]['tags'])
@@ -1156,16 +1174,23 @@ class TestThePickTiming(PluginBase):
 
         # the step after the insertion dispatches the node the pick had chosen; the inserted node is
         # in that same ranking, and it is the top row once that node is closed
-        dispatched = sb.next()
+        dispatched = sb.advance()['plan']
         self.assertEqual('dispatch', dispatched['action'], dispatched)
         self.assertEqual(NODE, dispatched['node_id'])
         self.assertEqual([NODE], sb.holding_ids())
 
         sb.write_signal('cyc', dispatched['node_id'], 'completed', 'done', {'deliverable': 'x'})
-        after = sb.close_round(dispatched['node_id'])
-        self.assertEqual('dispatch', after['action'], after)
-        self.assertEqual(made[0], after['node_id'], 'the inserted node is not in the same ranking')
-        self.assertEqual([made[0]], sb.holding_ids())
+        after = sb.settle(dispatched['node_id'])
+        self.assertEqual('settle', after['action'], after)
+        self.assertEqual([], sb.holding_ids(), 'the settle claimed a node')
+        # The inserted node is in the same ranking every other node is -- the picking rules read it
+        # like any row, with no special place for "a node a plugin made".
+        self.assertIn(made[0], [row['id'] for row in pipeline.ranked_ready_nodes(
+            sb.root, tags=['coding'])], 'the inserted node never reached the ranking')
+        top = [row['id'] for row in pipeline.ranked_ready_nodes(
+            sb.root, limit=1, tags=['coding'])]
+        self.assertEqual(sb.advance()['pinned'], top,
+                         'the advance did not claim the head of the ranking')
 
     def test_an_always_answering_pick_plugin_inserts_one_node_per_step(self):
         """A pick insertion ends the step: one answer, one node, and the call comes back.
@@ -1186,7 +1211,7 @@ class TestThePickTiming(PluginBase):
 
         sizes = [len(sb.dag()['nodes'])]
         for step in range(3):
-            action = sb.next()
+            action = sb.advance()['plan']
             sizes.append(len(sb.dag()['nodes']))
             self.assertIn(action['action'], ('insert_node', 'dispatch'), action)
 
@@ -1201,12 +1226,12 @@ class TestThePickTiming(PluginBase):
         sb = self.coding_line()
         write_plugin(self.plugins(), 'pickfix', insert_decl('pickfix', timing='pick'),
                       insert_impl())
-        sb.next()
+        sb.advance()['plan']
         sb.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual(2, len(sb.dag()['nodes']),
                          'a pick-timing plugin inserted at a close it never claimed')
 
@@ -1231,12 +1256,12 @@ class TestABrokenOfferIsContained(PluginBase):
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
-        self.assertEqual(NODE2, action['node_id'])
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual(2, len(sb.dag()['nodes']), 'the skipped offer edited the graph anyway')
-        self.assertEqual([NODE], sb.path_nodes(), 'the node was not closed')
+        self.assertEqual([NODE], sb.path_nodes(), 'the node was not settled')
+        self.assertEqual(NODE2, sb.advance()['plan']['node_id'], 'the ordinary step did not run on')
         self.assertEqual([NODE2], sb.holding_ids())
         self.assertTrue((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / NODE2
                          / 'prompt.txt').is_file(), 'the close did not ask for the next session')
@@ -1258,11 +1283,13 @@ class TestABrokenOfferIsContained(PluginBase):
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual(2, len(sb.dag()['nodes']), 'a refused offer still edited the graph')
-        self.assertEqual([NODE2], sb.holding_ids())
+        self.assertFalse(action.get('insertions'), 'a refused offer still inserted a node')
+        self.assertEqual([], sb.holding_ids(), 'the settle claimed the successor')
+        self.assertEqual(NODE2, sb.advance()['plan']['node_id'], 'the ordinary step did not run on')
         text = err.getvalue()
         self.assertIn('plugin wrong-tags', text)
         self.assertIn('`tags` must be a list of strings', text)
@@ -1279,10 +1306,11 @@ class TestABrokenOfferIsContained(PluginBase):
         sb = self.finished_head()
         write_plugin(self.plugins(), 'once', insert_decl('once'), ONCE_IMPL)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual('insert_node', action['action'], action)
-        made = action['node_id']
+        self.assertEqual('settle', action['action'], action)
+        self.assertTrue(action.get('insertions'), action)
+        made = action['inserted_node']
         nodes = sb.dag()['nodes']
         self.assertEqual(3, len(nodes), f'the node was not inserted: {action}')
         spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
@@ -1298,7 +1326,7 @@ class TestABrokenOfferIsContained(PluginBase):
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.next()
+            action = sb.advance()['plan']
 
         self.assertEqual('dispatch', action['action'], action)
         self.assertEqual(NODE, action['node_id'])
@@ -1320,19 +1348,20 @@ class TestTheOffersFields(PluginBase):
 
     def test_an_offer_cannot_rewrite_the_actions_own_cells(self):
         """An offer whose `fields` carries `cycle` / `action` / `note` / `steps` / `why` /
-        `before_node` / `before_title` after a real close: each reserved key is dropped with a warning
-        naming it, and the action a caller reads is the close's own -- an `insert_node` for the line it
-        settled, with the offer's own `note` and the core's steps, not the plugin's."""
+        `before_node` / `before_title` after a real settle: each reserved key is dropped with a warning
+        naming it, and the action a caller reads is the settle's own -- one node's end, with the
+        insertion's own `note` and the core's steps beside it, and the plugin's values nowhere."""
         sb = self.finished_head()
         write_plugin(self.plugins(), 'liar', insert_decl('liar'), RESERVED_FIELDS_IMPL)
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual('insert_node', action['action'], action)
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual('cyc', action['cycle'], 'an offer renamed the line the close settled')
-        self.assertEqual('the fixture asked for this node', action['note'])
+        self.assertTrue(action.get('insertions'), 'the offer inserted nothing at all')
+        self.assertEqual('the fixture asked for this node', action['insertions'][0]['note'])
         self.assertIn('insert a node with the generated spec', ' '.join(action['steps']))
         self.assertEqual({'metric': 'fixture'}, action['insertions'][0]['fields'],
                          'a reserved key survived in the nested insertion')
@@ -1384,12 +1413,12 @@ class TestADoorMayNotEndTheProcess(PluginBase):
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
-        self.assertEqual(NODE2, action['node_id'])
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual(2, len(sb.dag()['nodes']), 'the skipped offer edited the graph anyway')
-        self.assertEqual([NODE], sb.path_nodes(), 'the node was not closed')
+        self.assertEqual([NODE], sb.path_nodes(), 'the node was not settled')
+        self.assertEqual(NODE2, sb.advance()['plan']['node_id'], 'the ordinary step did not run on')
         lines = [line for line in err.getvalue().splitlines() if line.startswith('WARNING:')]
         self.assertEqual(1, len(lines), f'the plugin did not get exactly one warning: {lines}')
         self.assertIn('plugin exit-offer', lines[0])
@@ -1403,12 +1432,12 @@ class TestADoorMayNotEndTheProcess(PluginBase):
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual('dispatch', action['action'], action)
-        self.assertEqual(NODE2, action['node_id'])
+        self.assertEqual('settle', action['action'], action)
         self.assertEqual(2, len(sb.dag()['nodes']), 'the skipped offer edited the graph anyway')
-        self.assertEqual([NODE], sb.path_nodes(), 'the node was not closed')
+        self.assertEqual([NODE], sb.path_nodes(), 'the node was not settled')
+        self.assertEqual(NODE2, sb.advance()['plan']['node_id'], 'the ordinary step did not run on')
         lines = [line for line in err.getvalue().splitlines() if line.startswith('WARNING:')]
         self.assertEqual(1, len(lines), f'the plugin did not get exactly one warning: {lines}')
         self.assertIn('plugin exit-build', lines[0])

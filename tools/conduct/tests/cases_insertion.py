@@ -84,16 +84,20 @@ class TestTheInsertionMechanism(Base):
         sb = self.a_pair()
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', 'parallel', 1)
-        sb.next()                                  # the dispatch for NODE
+        sb.advance()['plan']                                  # the dispatch for NODE
         sb.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
 
         with plugins_dir(sb.root / 'plugins'):
             write_plugin(sb.root / 'plugins', 'second', second_source_decl(),
                           SECOND_SOURCE_IMPL)
-            action = sb.close_round(NODE)
+            action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'insert_node', action)
-        made = action['node_id']
+        # The close-time seam rides on the settle it fired at: the action is the settle, and the
+        # nodes it put into the graph are named beside it (`inserted_node` is the first one's id,
+        # minted by `apply`; `insertions` is the whole list).
+        self.assertEqual(action['action'], 'settle', action)
+        self.assertTrue(action.get('insertions'), f'nothing was inserted: {action}')
+        made = action['inserted_node']
         nodes = sb.dag()['nodes']
         self.assertEqual(len(nodes), 3, f'nothing was inserted: {action}')
         self.assertRegex(made, r'^[0-9a-fA-F-]{36}$', 'the id is not the uuid the tool minted')

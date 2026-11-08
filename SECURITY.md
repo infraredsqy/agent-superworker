@@ -4,7 +4,7 @@
 
 Use GitHub's private advisory form:
 
-https://github.com/infraredsqy/agent-pathfinder/security/advisories/new
+https://github.com/infraredsqy/agent-superworker/security/advisories/new
 
 Please do not open a public issue for anything exploitable.
 

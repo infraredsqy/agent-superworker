@@ -1,20 +1,19 @@
 """The whole walk, through the shipped processes.
 
-`TestEndToEnd` drives the closing call through the harness's one spawn entry
-(`Sandbox.spawn_next`), whose drill switch the harness holds: no session is ever started and the
-network is never touched, but every command is the real one.
+`TestEndToEnd` drives the four words as a real caller does -- `sw plan` reads, `sw settle` records,
+`sw advance` claims and opens -- through the harness's spawn entry, whose drill switch the harness
+holds: no session is ever started and the network is never touched, but every command is the real one.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cases_base import Base, NODE, skill_of  # noqa: E402
-from harness import Closer, Driver, WorkerSession, stop_after  # noqa: E402
+from cases_base import Base, skill_of  # noqa: E402
+from harness import TERMINAL_ACTIONS  # noqa: E402
 
 __all__ = ['TestEndToEnd']
 
@@ -29,21 +28,22 @@ class TestEndToEnd(Base):
         return sb, ids
 
     def deliver(self, sb, node_id, outputs=None, status='completed'):
-        """One worker's report, as the real process. The close is `next --after <node>`."""
+        """One worker's report, as the real process. The close is `sw settle <node>`."""
         return sb.handoff('cyc', node_id, status, 'done',
                           outputs if outputs is not None else {'deliverable': 'x',
                                                                'acceptance': ['a'],
                                                                'touched': []})
 
-    def test_the_walk_from_start_cycle_to_stop_pipeline(self):
-        """Two nodes, three commands each (report, close, spawn), and the run parks itself.
+    def test_the_walk_from_start_cycle_to_the_end_of_the_line(self):
+        """Two nodes, and the run parks itself: report, settle, advance -- three commands a node.
 
         The loop mirrors what the pipeline asks a caller to do: read the action, and when it is a
-        dispatch, let that node's worker report. The first dispatch is the one `cycle start` pinned.
+        dispatch, let that node's worker report; when it is a wait, settle the node it names and
+        advance, which lands the next session. The first dispatch is the one `cycle start` pinned.
         """
         sb, ids = self.project(2)
 
-        opening, proc = sb.next_cli('--plan')
+        opening, proc = sb.plan_cli()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(opening['action'], 'dispatch')
         self.assertEqual(opening['node_id'], ids[0])
@@ -52,10 +52,11 @@ class TestEndToEnd(Base):
         seen = []
         finished = None
         for _ in range(8):
-            action = sb.next_cli()[0]
-            # The walk is over when the line's last close takes it out of service: a bare `next`
-            # leaves it alone and names the command that puts it back in.
-            if action['action'] in ('stop_pipeline', 'ask_user', 'no_cycle'):
+            action, proc = sb.plan_cli()
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            if action['action'] in TERMINAL_ACTIONS:
+                # The line's last settle parked it: a bare `plan` leaves it alone and names the
+                # command that puts it back in.
                 finished = action['action']
                 break
             if action['action'] == 'dispatch':
@@ -66,10 +67,13 @@ class TestEndToEnd(Base):
             self.assertEqual(action['action'], 'wait', action)
             node = action['node_id']
             seen.append(node)
-            settled, proc = sb.spawn_next('--after', node)
+            settled, proc = sb.settle_cli(node)
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            if settled['action'] == 'dispatch':
-                self.assertEqual(settled['node_id'], ids[len(seen)])
+            self.assertEqual(settled['action'], 'settle')
+            receipt, proc = sb.advance_cli()
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            if receipt['plan']['action'] == 'dispatch':
+                self.assertEqual(receipt['plan']['node_id'], ids[len(seen)])
 
         self.assertIsNotNone(finished, 'the run never settled')
         self.assertEqual(seen, ids)
@@ -82,18 +86,17 @@ class TestEndToEnd(Base):
         has to be the dry-run banner and never a session id."""
         sb, ids = self.project(2)
         seen = []
-        for _ in range(6):
-            action = sb.next_cli()[0]
-            if action['action'] in ('stop_pipeline', 'ask_user', 'no_cycle'):
+        for _ in range(8):
+            action, _ = sb.plan_cli()
+            if action['action'] in TERMINAL_ACTIONS:
                 break
             if action['action'] == 'dispatch':
                 self.deliver(sb, action['node_id'])
                 continue
-            settled, _ = sb.spawn_next('--after', action['node_id'])
-            if settled.get('spawned'):
-                seen.append(settled['spawned'])
+            sb.settle_cli(action['node_id'])
+            receipt, _ = sb.advance_cli()
+            seen.extend(receipt.get('spawned') or [])
 
         self.assertTrue(seen, 'no spawn was ever reported')
         for line in seen:
             self.assertIn('dry-run', line, f'a real session was started: {line}')
-

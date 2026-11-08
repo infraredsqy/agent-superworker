@@ -1,7 +1,7 @@
 ﻿# ============================================================================
 # zcode-spawn.ps1 — queue one node session into ZCode's own cron scheduler (used by pipeline dispatch)
 # ============================================================================
-# Called only by conduct_spawn.py (the pipeline reaches it through `state-manage.py next --spawn` and
+# Called only by conduct_spawn.py (the pipeline reaches it through `state-manage.py advance` and
 # `dispatch <cycle>`). It and dsh-spawn.ps1 are two implementations of one place: that one opens a DSH
 # session directly over the DSH HTTP API, this one writes a row into the `automations` table of
 # `~/.zcode/v2/tasks-index.sqlite` and leaves it to the desktop's own scheduler (one round every 20

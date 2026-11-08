@@ -165,10 +165,11 @@ class TestNodeTags(Base):
         self.assertEqual(node, self.K)
 
         waiting = finish_node(sb)
-        closed = sb.close_round(waiting['node_id'])
+        closed = sb.settle(waiting['node_id'])
 
-        self.assertEqual(closed['action'], 'stop_pipeline')
-        reason = closed['reason']
+        self.assertEqual(closed['action'], 'settle')
+        self.assertTrue(closed['parked'], 'the plan stopped and the settle had to park the line')
+        reason = closed['note']
         self.assertIn('Write copy', reason)                 # which node is ready
         self.assertIn(self.W, reason)
         self.assertIn('writing', reason)                    # blocked by which tag
@@ -196,12 +197,12 @@ class TestNodeTags(Base):
         self.assertEqual(waiting['node_id'], node)
 
     def test_the_second_pick_path_says_the_same_thing(self):
-        """The filter only deletes rows: after the close, the same state read through the two entries
+        """The filter only deletes rows: after a settle, the same state read through the two entries
         gives the same filtered result.
 
         This line recognizes only `coding` from start to finish (the untagged job is in range too, so
-        it is picked first); after the close one node tagged `coding` is still on disk -- in range
-        and still ready, and that is the one the second entry has to pick.
+        it is picked first); after the settle one node tagged `coding` is still on disk -- in range
+        and still ready, and that is the one the next advance has to claim.
         """
         sb = self.make()
         sb.add_node(self.K, 'Write code', mode='auto', tags=['coding'])
@@ -214,10 +215,16 @@ class TestNodeTags(Base):
         self.assertEqual(pinned.returncode, 0, pinned.stderr)
         self.assertEqual(sb.current_node(), self.P, 'the untagged job is the one that matters most')
         sb.write_signal('cyc', self.P, 'completed', 'done')
-        sb.close_round(self.P)
+        sb.settle(self.P)
 
-        # the second entry reads the same graph and the same filter
-        self.assertEqual(sb.current_node(), self.K, 'the ready one on this line is that coding node')
+        # the second entry reads the same graph and the same filter: the settle recorded the step
+        # and claimed nothing, so the next advance is where the freed slot is filled. Which node that
+        # is comes from the one ranking both entries share -- read here through the pipeline's own
+        # reading, so the case pins "the two agree" without restating the scores.
+        self.assertIsNone(sb.current_node(), 'the settle claims nothing')
+        top = [n['id'] for n in pipeline.ranked_ready_nodes(sb.root, limit=1, tags=['coding'])]
+        claimed = sb.advance()['pinned']
+        self.assertEqual(claimed, top, 'the advance claims the head of the ranking the plan reads')
         self.assertEqual([n['id'] for n in pipeline.tag_blocked_ready_nodes(sb.root, ['coding'])], [])
         self.assertEqual(sb.dag_status(self.P), 'completed')
         self.assertEqual(sb.dag_status(self.K), 'todo', 'being picked is not being run')
@@ -228,13 +235,14 @@ class TestNodeTags(Base):
         sb = self.make()
         sb.add_node(self.K, 'Write code', mode='auto')
         sb.create_cycle(cycle_id='cyc')
-        sb.set_current_node(self.K)
+        sb.hold(self.K)
         sb.write_signal('cyc', self.K, 'completed', 'done')
-        action = sb.close_round(self.K)
+        action = sb.settle(self.K)
 
-        self.assertEqual(action['action'], 'stop_pipeline')
-        self.assertIn('the graph has no ready node left', action['reason'])
-        self.assertNotIn('tag', action['reason'])
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action['parked'])
+        self.assertIn('the graph has no ready node left', action['note'])
+        self.assertNotIn('tag', action['note'])
         self.assertEqual(sb.cycle()['status'], 'inactive')
 
     def test_an_untagged_cycle_picks_what_it_always_picked(self):
@@ -280,31 +288,22 @@ class TestNodeTags(Base):
         self.assertEqual(sb.current_node(), self.K)
         self.assertEqual(sb.plan()['node_id'], self.K)
 
-    def test_a_named_node_outside_the_filter_set_runs_and_says_so(self):
-        """`--node` is a name the owner typed by hand, and the filter set does not reach it -- but it
-        has to say so, so nobody thinks the filter set failed to apply."""
+    def test_a_named_node_outside_the_filter_set_runs(self):
+        """A name the owner typed by hand reaches past the filter set: `hold` claims the node the
+        close's ranking would never have picked, and the next advance opens its session.
+
+        Who runs next is the line's own hand, so a filter set can only shape what the RANKING
+        takes -- a node somebody names in full is work they put on the line themselves.
+        """
         sb = self.code_and_words()
         sb.start_cycle(tags=['coding'])
-        sb.write_signal('cyc', self.K, 'completed', 'done')
-        action = sb.close_round(self.K, node=self.W)
+        sb.hold(self.W)
 
-        self.assertEqual(sb.current_node(), self.W)
-        self.assertIn("is not in this cycle's filter set", action.get('note', ''),
-                      f'a hand-named node outside the filter must be said out loud: {action}')
-
-    def test_a_named_node_that_is_not_ready_is_refused(self):
-        """Naming a node nobody can run: it stops and writes the named id into the reason, instead of
-        quietly running another node."""
-        sb = self.make()
-        sb.add_node(self.K, 'Write code', mode='auto', tags=['coding'])
-        absent = 'absent-9999-4999-8999-999999999999'
-        sb.start_cycle(tags=['coding'])
-        sb.write_signal('cyc', self.K, 'completed', 'done')
-        stopped = sb.close_round(self.K, node=absent)
-
-        self.assertEqual(stopped['action'], 'stop_pipeline')
-        self.assertIn(absent, stopped['reason'])
-        self.assertIsNone(sb.current_node())
+        self.assertIsNotNone(sb.current_node())
+        dispatched = sb.advance()['plan']
+        self.assertEqual(dispatched['action'], 'dispatch')
+        self.assertIn(self.W, [cell['node_id'] for cell in dispatched['nodes']],
+                      'the claimed node is one of the cells this advance opens')
 
     def test_the_cycle_keeps_its_filter_set_for_every_later_step(self):
         """The filter set belongs to **this line** and travels with it to the last step: every later
@@ -319,8 +318,9 @@ class TestNodeTags(Base):
 
         picked = [node for node, _ in driver.dispatched]
         self.assertEqual(picked, [a, b])
-        self.assertEqual(terminal['action'], 'stop_pipeline')
-        self.assertIn(self.W, terminal['reason'])
+        self.assertEqual(terminal['action'], 'settle')
+        self.assertTrue(terminal['parked'])
+        self.assertIn(self.W, terminal['note'])
         self.assertEqual(sb.cycle()['tags'], ['coding'])
 
     def test_start_cycle_tags_reach_the_pick_and_the_record(self):
@@ -470,14 +470,14 @@ class TestCycleSelection(Base):
         action = sb.plan()
         self.assertEqual(action['action'], 'no_cycle')
         self.assertFalse(action.get('commands'))
-        self.assertFalse(sb.next().get('applied'))
+        self.assertFalse(sb.advance()['plan'].get('applied'))
         state = sb.state() or {'cycles': []}      # nothing was written, not even an empty state
         self.assertEqual(state['cycles'], [])
 
     def test_unknown_cycle_id_is_not_a_new_cycle(self):
         sb = self.make()
         sb.create_cycle('one')
-        action = sb.plan_for('nope')
+        action = sb.plan('nope')
         self.assertEqual(action['action'], 'ask_user')
         self.assertEqual(action['requested'], 'nope')
 
@@ -501,7 +501,7 @@ class TestCycleSelection(Base):
         sb.set_cycle_status('cyc', 'inactive')
         self.assertEqual(sb.cycle()['status'], 'inactive')
 
-        action = sb.plan_for('cyc')
+        action = sb.plan('cyc')
         self.assertEqual(action['action'], 'ask_user')
         self.assertIn('not active', action['question'])
         self.assertIn('cycle status cyc active', action['hint'])
@@ -582,7 +582,7 @@ class TestNodeWeight(Base):
         """The prompt's first line when this node is dispatched -- the runtime's criterion grows on
         this line."""
         sb.start_cycle()
-        action = sb.next()
+        action = sb.advance()['plan']
         self.assertEqual('dispatch', action['action'], action)
         return action['prompt_text'].splitlines()[0]
 

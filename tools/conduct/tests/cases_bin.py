@@ -62,7 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import (GIT, TOOLS_DIR, _child_env, _run_command, git, init_markers, requires_plugin,
                      run_argv, write_skill)
 
-__all__ = ['TestPfCmdShim', 'TestPfShimInPowerShell', 'TestPfShimInWindowsPowerShell',
+__all__ = ['TestSwCmdShim', 'TestSwShimInPowerShell', 'TestSwShimInWindowsPowerShell',
            'TestDoctorRoot', 'TestDoctorPlugins', 'TestPluginCommands', 'TestCommandList']
 
 PYTHON = sys.executable
@@ -151,7 +151,7 @@ def sw(*args, cwd):
 
 
 @unittest.skipUnless(os.name == 'nt', 'sw.cmd is the Windows shim')
-class TestPfCmdShim(unittest.TestCase):
+class TestSwCmdShim(unittest.TestCase):
     """`sw.cmd`: one command runs exactly once, and the exit code goes out as it came in."""
 
     def setUp(self):
@@ -222,7 +222,7 @@ class TestPfCmdShim(unittest.TestCase):
         self.assertIn('sw.py', handed)
 
 
-class _PfShimCases:
+class _SwShimCases:
     """In PowerShell the word `sw` is the `.ps1` shim -- and the argv it was handed reaches the tool
     whole.
 
@@ -381,7 +381,7 @@ class _PfShimCases:
 
 @unittest.skipUnless(os.name == 'nt', 'the two shims in front of `sw` are the Windows ones')
 @unittest.skipUnless(PWSH, 'pwsh is the host a skill session runs `sw` in')
-class TestPfShimInPowerShell(_PfShimCases, unittest.TestCase):
+class TestSwShimInPowerShell(_SwShimCases, unittest.TestCase):
     """The `.ps1` shim as `pwsh` takes it: the argv it was handed reaches the tool whole, once, with
     the command's exit code."""
 
@@ -390,7 +390,7 @@ class TestPfShimInPowerShell(_PfShimCases, unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'nt', 'the two shims in front of `sw` are the Windows ones')
 @unittest.skipUnless(WINDOWS_POWERSHELL, 'Windows PowerShell is the other host that takes the `.ps1`')
-class TestPfShimInWindowsPowerShell(_PfShimCases, unittest.TestCase):
+class TestSwShimInWindowsPowerShell(_SwShimCases, unittest.TestCase):
     """The same cases on Windows PowerShell 5.1, whose own rendering of a native command's arguments is
     not the CRT's: the doc line is measured on that host too -- the reading that was missing when the
     JSON lost its quotes inside it."""
@@ -948,7 +948,7 @@ if __name__ == '__main__':
         `sw doctor` is the one door holding both tables, so it is where the declaration that lost is
         named, word by word.
         """
-        self.add_plugin('clash', {'next': {'summary': 'the clash would like this one'},
+        self.add_plugin('clash', {'plan': {'summary': 'the clash would like this one'},
                                   'doctor': {'summary': 'and this one'},
                                   'cycle': {'summary': 'this group too'}})
 
@@ -958,13 +958,13 @@ if __name__ == '__main__':
             self.assertNotIn(line, help_text.stdout, 'a losing declaration reached the help')
 
         doctor = self.doctor()
-        for word in ('doctor', 'next', 'cycle'):
+        for word in ('doctor', 'plan', 'cycle'):
             self.assertIn(f"plugin 'clash': command '{word}' is a word this checkout already answers",
                           doctor.stdout, f'the collision on {word!r} was not reported')
 
         # the routing still goes to the core's own row, on both tables and on a self verb
         self.assertIn('sw command: ', self.doctor().stdout)
-        self.assertIn('no_cycle', self.sw('next').stdout)
+        self.assertIn('no_cycle', self.sw('plan').stdout)
         self.assertEqual(0, self.sw('cycle', '--help').returncode)
         self.assertEqual([], self.ran('clash'), 'the clash answered a word the core owns')
 
@@ -1004,7 +1004,7 @@ class TestCommandList(unittest.TestCase):
         self.assertEqual(flag.stdout, verb.stdout)
         self.assertIn('weight', verb.stdout)
 
-    def test_pf_help_names_every_word_it_routes(self):
+    def test_sw_help_names_every_word_it_routes(self):
         """`--help`'s sections list the words in the routing table -- adding a verb changes only that
         one row, and a word a plugin contributes arrives through the same table."""
         entry = self.entry()

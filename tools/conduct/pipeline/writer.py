@@ -1,6 +1,8 @@
-"""The writing half: `apply` runs what `plan` decided, `record` drives on to the next stable action.
+"""The writing half: `apply` runs what `plan` decided; `settle`, `dispatch`, `advance` are the words.
 
-Also `MAX_SETTLE_STEPS`, `_snapshot`, `resolve_spawner`, `spawn_session`, and `clean_launch_dir`.
+`settle` is one node's end (plan's closing reading, written down); `dispatch` opens the sessions of
+the cells a line holds; `advance` is claim + material + session in one word. Also `_snapshot`,
+`resolve_spawner`, `spawn_session`, and `clean_launch_dir`.
 """
 
 from __future__ import annotations
@@ -12,10 +14,8 @@ from pathlib import Path
 from . import insertion, seam
 from .store import (_holding_ids, _loader, cycle_policy, find_cycle, load_dag, load_signal,
                     load_state, note_session)
-from .prompts import (launch_dir, started_marker, write_prompt_file)
+from .prompts import (launch_dir, launch_prompt_path, started_marker, write_prompt_file)
 from .planner import plan
-
-MAX_SETTLE_STEPS = 8
 
 #: How long a spawn claim may sit before it counts as stale: a spawn takes seconds (the spawner's
 #: own ceiling is 300), and a claim left behind by a killed process must not wedge the retry
@@ -183,9 +183,9 @@ def spawn_session(project: Path, cycle_id: str, prompt_file: str | None = None,
     is not a thing the pipeline has. A `None` here is a caller bug and surfaces as the spawner's own
     loud failure, not as a silent second kind of session.
 
-    The callers are the two spellings of one call: `state-manage.py dispatch <cycle>` (dispatch after
-    the push) and `state-manage.py next --after <node_id> --spawn` (the one-shot close-and-dispatch);
-    nobody hand-rolls the API calls.
+    The callers are the two spellings of one call: `dispatch <cycle>` (open the sessions of the
+    cells a line holds) and `advance` (claim, land the material, open them); both go through
+    `dispatch_cells`, and nobody hand-rolls the API calls.
 
     The call is guarded by a spawn claim (`_claim_spawn`), so a double dispatch -- cron rescue
     against an in-flight spawn -- is refused instead of booting two sessions onto one node. A
@@ -308,26 +308,21 @@ def _prune_launch_dirs(project: Path, cycle_id: str) -> None:
             shutil.rmtree(d, ignore_errors=True)
 
 
-def apply(project, cycle_id: str | None = None, decision: str | None = None,
-          node: str | None = None, note: str = '', self_verified: bool = False,
-          after: str | None = None, action: dict | None = None,
-          decision_given: bool = False) -> dict:
+def apply(project, cycle_id: str | None = None, action: dict | None = None) -> dict:
     """plan() + carry out the writing half, then enforce the contract invariant.
 
     The `commands` are RUN HERE and stripped from the returned action. A caller that reads
     `commands` and runs them itself is doing the v1 double-step; the field simply is not there to
     read.
 
-    `action` is for a caller that ALREADY planned (record does): handing it in is what keeps the
-    executed package the one that was planned -- re-planning here would build a second action for
-    the same state, and anything the first plan carried outside `commands` (a multi-node
+    `action` is for a caller that ALREADY planned (`settle` and `advance` do): handing it in is what
+    keeps the executed package the one that was planned -- re-planning here would build a second
+    action for the same state, and anything the first plan carried outside `commands` (a multi-node
     dispatch's per-node prompt list, for one) would be planned twice differently.
     """
     project = Path(project).resolve()
     if action is None:
-        action = plan(project, cycle_id, decision=decision, node=node, note=note,
-                      self_verified=self_verified, after=after,
-                      decision_given=decision_given)
+        action = plan(project, cycle_id)
     kind = action['action']
     commands = action.get('commands') or []
     # Built separately by the planner, run first and then dropped from the list (see the marker slot
@@ -396,9 +391,15 @@ def apply(project, cycle_id: str | None = None, decision: str | None = None,
                     ran.append(insertion.fill_all(list(add), node_id))
                     # The uuid did not exist when this action was built: the paths it reports and the
                     # steps it shows a reader were written against the placeholder. The first
-                    # insertion is the action's own (`node_id` / `spec` / `steps`).
-                    if index == 0:
-                        action['node_id'] = node_id
+                    # insertion is the action's own (`node_id` / `spec` / `steps`) -- unless the
+                    # action is something else that an insertion rode on (a `settle`, whose own
+                    # `node_id` is the node that was closed), and then the new node is reported in
+                    # `inserted_node` instead.
+                    if kind == insertion.INSERT_ACTION:
+                        if index == 0:
+                            action['node_id'] = node_id
+                    else:
+                        action['inserted_node'] = node_id
                     if insertions:
                         # Each insertion reports the node it became, next to the first one's mirror.
                         insertions[index]['node_id'] = node_id
@@ -473,45 +474,132 @@ def apply(project, cycle_id: str | None = None, decision: str | None = None,
     return action
 
 
-def record(project, cycle_id: str | None = None) -> dict:
-    """Drive the pipeline to its next *stable* action.
+def settle(project, cycle_id: str | None = None, node: str | None = None) -> dict:
+    """Record one node's end: `plan(after=node)` and the writing half of it, in one call.
 
-    This is the whole of the conductor's mechanical routine, and it is one call: consume a finished
-    node's signal, do every piece of bookkeeping that follows from it, and stop at the first thing a
-    caller can act on -- `dispatch` (spawn this node), `wait` (a node waiting for its own closing
-    call), `ask_user`, `stop_pipeline`, or `insert_node`.
+    The settle is the whole of a worker's close, and the whole of it: the plan behind it is
+    `plan(project, cycle_id, after=node)` -- the same reading `sw plan --after` prints as a
+    rehearsal -- and `apply` runs the three steps it names (the step into the line's `path`, the
+    graph mark, the close-time plugin seam). It pins nothing, lands no prompt and opens nothing; a
+    line whose round the stop rule ended is turned `inactive` by that same write, and `parked` in
+    the answer says so.
 
-    **An insertion is where the call stops, at BOTH timings.** The graph edit is the answer: the
-    caller commits and pushes, then runs the next step, where the ranking decides who runs first. So
-    a pick-time insertion is not re-planned behind the caller's back -- the settle loop ends on the
-    `insert_node` action, exactly as a close's insertion does -- and a plugin that answers every
-    time it is asked contributes one node per call, never a burst. No caller may assume `record`
-    always ends in a dispatch.
-
-    Note the shape otherwise: it re-plans after every other applied step rather than returning the
-    action it just ran. Returning the close action would leave a closed-but-undispatched pipeline
-    behind.
+    `node` is required in practice (a line holding several needs to know which close this is); with
+    it absent the plan takes the one node in hand, which is unambiguous only when the line holds
+    exactly one.
     """
     project = Path(project).resolve()
-    action = {'action': 'wait', 'commands': []}
-    for _ in range(MAX_SETTLE_STEPS):
-        action = plan(project, cycle_id)
-        kind = action['action']
-        commands = action.get('commands') or []
-
-        if kind in ('dispatch', 'open_node'):
-            return apply(project, cycle_id, action=action)
-        if kind == insertion.INSERT_ACTION:
-            # One insertion ends the step, whatever timing asked for it: the same answer a close's
-            # insertion gives. Re-planning here is what let a pick plugin that keeps offering grow
-            # the graph and never reach a dispatch.
-            return apply(project, cycle_id, action=action)
-        if kind == 'stop_pipeline':
-            return apply(project, cycle_id, action=action) if commands else action
-        if kind in ('wait', 'ask_user', 'no_cycle'):
-            return action
-        if commands:
-            apply(project, cycle_id, action=action)
-            continue
+    action = plan(project, cycle_id, after=node)
+    if action.get('action') != 'settle':
+        # `wait` (no ticket yet, or not this line's node) and `ask_user` (the line does not hold it)
+        # carry no commands: handing them back as they stand is the honest answer, and writing
+        # nothing is what they promise.
         return action
-    return action
+    return apply(project, action=action)
+
+
+def dispatch_cells(project, cycle_id: str, spawner=None, dry_run: bool | None = None) -> dict:
+    """Open one session per cell this line is holding, and nothing else.
+
+    The session half of both `dispatch` and `advance`: every cell in hand whose `started` stamp is
+    absent and whose prompt is on disk is handed to the spawner, in the line's own order. A cell
+    whose session already ran is skipped (`skipped`), and a cell with no prompt is reported
+    (`unprompted`) rather than guessed at -- landing material is the dispatch's own step, and
+    `advance` has already run it.
+
+    `dry_run` left as `None` reads `DSH_CONDUCT_SPAWN_DRY_RUN` (the machine-wide drill): the call is
+    made and answered, no session opens, and the `started` stamp does not land either.
+    """
+    project = Path(project).resolve()
+    cycle = find_cycle(load_state(project), cycle_id)
+    holding = _holding_ids(cycle) if cycle else []
+    if dry_run is None:
+        dry_run = os.environ.get('DSH_CONDUCT_SPAWN_DRY_RUN', '') not in ('', '0', 'false', 'False')
+    ready, skipped, unprompted = [], [], []
+    for node_id in holding:
+        if started_marker(project, cycle_id, node_id).is_file():
+            skipped.append(node_id)
+            continue
+        prompt = launch_prompt_path(project, cycle_id, node_id)
+        if not prompt.is_file():
+            unprompted.append(node_id)
+            continue
+        ready.append((node_id, prompt))
+    receipt = {'spawned': [], 'skipped': skipped, 'unprompted': unprompted}
+    if not ready:
+        return receipt
+    # One answer for the whole dispatch: CLI naming > line policy > env var > the host's own guess.
+    chosen = resolve_spawner(project, cycle_id, spawner)
+    for node_id, prompt in ready:
+        receipt['spawned'].append(spawn_session(project, cycle_id, str(prompt),
+                                                dry_run=dry_run, spawner=chosen))
+        if not dry_run:
+            clean_launch_dir(project, cycle_id, node_id)
+    return receipt
+
+
+def advance(project, cycle_id: str | None = None, spawner=None,
+            dry_run: bool | None = None) -> dict:
+    """The composed word: claim, land the material, open the sessions. One call, three moves.
+
+    Every move in it is a word of its own -- `hold`, `dispatch` -- and this is only their order:
+
+      1. **claim**: the plan's `open_node` (the head of the ranking, as many cells as this line has
+         free slots for), applied -- the pins land, and `apply` re-plans into the dispatch;
+      2. **material**: that dispatch's prompt files, which `apply` writes on the way through;
+      3. **session**: `dispatch_cells`, one session per cell in hand.
+
+    Nothing else. It **settles nothing** -- a node whose work ended is recorded by `settle` -- and it
+    never writes a node's status. One exception, and it is the plan's own answer: a line whose plan
+    says `stop_pipeline` while it holds nothing and is still `active` is turned `inactive` here
+    (`parked`), because a stop is the plan's answer and somebody has to write it down.
+
+    An insertion at a pick stops the step where it is: the graph grew a node and nothing was opened,
+    and the caller commits and pushes before the next `advance` picks it up.
+    """
+    project = Path(project).resolve()
+    receipt = {'cycle': cycle_id, 'pinned': [], 'plan': None, 'acted': None, 'parked': False,
+               'spawned': [], 'skipped': [], 'unprompted': [], 'inserted': []}
+    action = plan(project, cycle_id)
+    # The reading this word carried out, kept beside the fresh one below: after a park the plan on
+    # an inactive line reads `ask_user`, so the reason the line stopped would be nowhere in the
+    # receipt without this.
+    receipt['acted'] = action
+    if action.get('action') == 'open_node':
+        # `open_node` names the cells as ids; the dispatch `apply` re-plans into names them as
+        # entries (one prompt file each), so the claim is read here, before the re-plan.
+        receipt['pinned'] = list(action.get('nodes') or [])
+        action = apply(project, cycle_id, action=action)
+        receipt['acted'] = action
+    elif action.get('action') == insertion.INSERT_ACTION:
+        # A pick-time insertion is a graph edit and nothing else: it lands here, no cell is claimed
+        # and no session opens, and the caller commits and pushes before the next `advance` picks
+        # the new node up by the usual ranking.
+        applied = apply(project, cycle_id, action=action)
+        receipt['inserted'] = [item.get('node_id') for item in
+                               (applied.get('insertions') or []) if item.get('node_id')]
+        receipt['cycle'] = applied.get('cycle') or cycle_id
+        receipt['acted'] = applied
+        receipt['plan'] = plan(project, receipt['cycle']) if receipt['cycle'] else applied
+        return receipt
+    cycle_id = action.get('cycle') or cycle_id
+    receipt['cycle'] = cycle_id
+    if action.get('action') == 'dispatch' and cycle_id:
+        # The material first (`apply` writes each cell's prompt and returns the same action); no
+        # session is opened by `apply` itself.
+        action = apply(project, cycle_id, action=action)
+        receipt['acted'] = action
+        cells = dispatch_cells(project, cycle_id, spawner=spawner, dry_run=dry_run)
+        receipt.update(cells)
+    elif action.get('action') == 'stop_pipeline' and not action.get('gate') and cycle_id:
+        # A gate's refusal is a `stop_pipeline` too, and it is the one stop that must NOT park the
+        # line: the gate is asking again on the next step, and an inactive line would answer
+        # "line not in service" instead of asking.
+        line = find_cycle(load_state(project), cycle_id)
+        if line and line.get('status') == 'active' and not _holding_ids(line):
+            apply(project, cycle_id, action={**action,
+                                             'commands': [seam.cmd('cycle', 'status',
+                                                                  cycle_id, 'inactive')]})
+            receipt['parked'] = True
+    receipt['plan'] = plan(project, cycle_id) if cycle_id else action
+    return receipt

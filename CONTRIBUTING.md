@@ -5,7 +5,7 @@ lands by review, and an answer may take a while.
 
 ## What a patch has to clear
 
-- **No session start in a test.** `sw next --spawn` and `sw dispatch` open real sessions and spend
+- **No session start in a test.** `sw advance` and `sw dispatch` open real sessions and spend
   real tokens, so a case stands on the seams instead. `cases_suite.py`'s
   `TestNoRealDispatchInTheSuite` walks the cases for a spawn switch, and `harness_sandbox.py` binds
   that flag in one place.

@@ -265,10 +265,9 @@ def _offer(ctx, cycle: dict, hit: dict) -> dict:
     note = (f'{hit["subject"]} read {reading}, over the line {line} in force for this close '
             f'(the `{hit["line"]}` knob): a node is inserted between the just-closed {closed[:8]} '
             f'and the {target.get("title") or target_id} it had picked. No session was opened, '
-            f'and the inserted node is not pinned: which node the next dispatch picks is the usual '
-            f'ranking\'s call (on a line that fills several slots, this same close may have pinned '
-            f'the rest of its fill). After committing and pushing: '
-            f'`sw next --cycle {cycle.get("id")} --spawn --json`.')
+            f'and the inserted node is not claimed: the next pick takes it by the usual ranking. '
+            f'After committing and pushing: '
+            f'`sw advance --cycle {cycle.get("id")} --json`.')
     return {
         'title': hit['title'],
         'tags': [hit['tag'], *_line_tags(cycle)],

@@ -41,7 +41,7 @@ $script:SpawnCommonDir = $PSScriptRoot
 #: the sentence the marker writes itself -- character for character `marker.py`'s `DEFAULT_NOTE`; the
 #: equivalence case watches these two files.
 $script:SpawnMarkerNote = ('The chain broke here: this step could not start the next one, and the pipeline will not move on by ' +
-                           'itself. To take over by hand use `sw next --after <node_id>` (the closing step) or ' +
+                           'itself. To take over by hand use `sw settle <node_id>` (the closing step) or ' +
                            '`sw dispatch <cycle>` (the dispatch step); once you have checked that nothing is wrong, ' +
                            'delete this file.')
 

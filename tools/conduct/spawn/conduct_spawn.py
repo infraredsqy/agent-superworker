@@ -8,7 +8,7 @@ a host that names no spawner, and `writer.resolve_spawner` is the pipeline's own
 question.
 
 One caller reaches this file: `pipeline/writer.spawn_session`, by way of `dispatch
-<cycle>` and the one-shot `next --after <node_id> --spawn`. `chain-spawn.py` -- the CLI a skill-run
+<cycle>` and the one-shot `advance`. `chain-spawn.py` -- the CLI a skill-run
 chain uses to hand on the baton -- is a caller of THAT door rather than a second one, so every
 session in this tree starts through the same call.
 

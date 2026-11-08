@@ -34,14 +34,14 @@ class TestRetry(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()                                   # nothing reported yet: a node in flight
+        sb.advance()                               # nothing reported yet: a node in flight
         sb.write_signal('cyc', NODE, 'pending', 'retry is ready')
 
-        action = sb.next()
+        action = sb.plan()
 
         self.assertEqual(action['action'], 'wait')
         self.assertIn(f'cycle retry cyc {NODE}', action['note'])
-        self.assertIn(f'cycle hold cyc {NODE}', action['note'])
+        self.assertIn(f'sw hold {NODE} --cycle cyc', action['note'])
 
     def test_clearing_the_ticket_and_pinning_again_redispatches_the_node(self):
         """The whole retry, driven as processes: the stale ticket is gone, so the next reader
@@ -49,14 +49,14 @@ class TestRetry(Base):
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'failed', 'the first run produced nothing')
 
         sb._tool('cycle', 'retry', 'cyc', NODE, '--summary', 'retry', cli=True)
         self.assertEqual(sb.read_signal('cyc', NODE)['status'], 'pending')
 
         sb.signal_path('cyc', NODE).unlink()        # the retry's own state, cleared for good
-        sb._tool('cycle', 'hold', 'cyc', NODE, cli=True)
+        sb.hold(NODE)
         action = sb.plan()
 
         self.assertEqual(action['action'], 'dispatch')
@@ -66,7 +66,7 @@ class TestRetry(Base):
     def test_dropping_the_ticket_is_what_lets_the_retry_be_dispatched(self):
         """The retry's last step: take that note out.
 
-        `running` is a red light too -- rewriting it without taking it out leaves `next` answering
+        `running` is a red light too -- rewriting it without taking it out leaves `plan` answering
         `wait` forever (the wait note lists exactly those three commands, and `--drop` is on the
         first of them). Once it is out, the same node reads as "nothing reported yet" again, and
         only then does the retry get up.
@@ -74,13 +74,13 @@ class TestRetry(Base):
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'pending', 'the previous run did not finish')
 
         sb._tool('cycle', 'retry', 'cyc', NODE, '--drop', cli=True)
         self.assertIsNone(sb.read_signal('cyc', NODE), 'no note may be left on disk after --drop')
 
-        sb._tool('cycle', 'hold', 'cyc', NODE, cli=True)
+        sb.hold(NODE)
         action = sb.plan()
 
         self.assertEqual(action['action'], 'dispatch')
@@ -92,9 +92,9 @@ class TestRetry(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'failed', 'produced nothing')
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
         self.assertEqual(sb.path()[0]['result'], 'failed')
         self.assertEqual(sb.dag_status(NODE), 'shelved')
@@ -111,17 +111,17 @@ class TestRetry(Base):
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.handoff('cyc', NODE, 'failed', summary='the first run produced nothing')
-        sb.next_cli('--after', NODE)
+        sb.settle_cli(NODE)
         self.assertEqual(sb.path()[0]['result'], 'failed')
 
         sb.add_node(NODE, 'UI design', status='todo', mode='auto')   # revive: put it back to todo
         sb._tool('cycle', 'retry', 'cyc', NODE, '--drop', cli=True)
-        sb._tool('cycle', 'hold', 'cyc', NODE, cli=True)
+        sb.hold(NODE)
 
         sb.handoff('cyc', NODE, 'completed', summary='the redo delivered')
-        sb.next_cli('--after', NODE)
+        sb.settle_cli(NODE)
 
         self.assertEqual([s['result'] for s in sb.path()], ['failed', 'completed'])
         self.assertEqual(sb.dag_status(NODE), 'completed')
@@ -133,16 +133,16 @@ class TestRetry(Base):
 class TestHandoff(Base):
     """`handoff.py <cycle> <node> <status>`: one command writes the ticket and stops there.
 
-    It opens no session and closes nothing: closing the node is the worker's own
-    `next --after <node>`, which is the one call that settles it. Driven as a real process -- this
-    file IS the shipped surface for the end of a node.
+    It opens no session and settles nothing: recording the node is the worker's own
+    `sw settle <node>`, the one call that ends the step. Driven as a real process -- this file IS
+    the shipped surface for the end of a node.
     """
 
     def started(self):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        return sb, sb.next()
+        return sb, sb.advance()['plan']
 
     def outputs(self, node=NODE):
         return {'deliverable': '.superworker/nodes/%s/sw-conduct.md' % node, 'acceptance': ['a'],
@@ -154,19 +154,19 @@ class TestHandoff(Base):
         proc = sb.handoff('cyc', NODE, 'completed', 'sw-conduct finished', self.outputs())
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn('the node is not closed yet', proc.stdout)
-        self.assertIn(f'next --after {NODE}', proc.stdout)
+        self.assertIn('the node is not settled yet', proc.stdout)
+        self.assertIn(f'sw settle {NODE}', proc.stdout)
         self.assertIn('no session was spawned', proc.stdout)
         # The ticket is on disk and nothing was consumed: only the close moves the cycle.
         self.assertEqual(sb.read_signal('cyc', NODE)['status'], 'completed')
         self.assertEqual(sb.current_node(), NODE)
         self.assertEqual(sb.path(), [])
-        self.assertEqual(sb.next()['action'], 'wait')
+        self.assertEqual(sb.plan()['action'], 'wait')
 
     def test_it_never_asks_a_spawner_for_anything(self):
         """No test may ever call dsh-spawn.ps1, and this command stops short of asking one for anything."""
         sb, first = self.started()
-        proc = sb.handoff('cyc', NODE, 'completed', 'done', self.outputs(), dry_run=True)
+        proc = sb.handoff('cyc', NODE, 'completed', 'done', self.outputs())
         self.assertNotIn('dry-run', proc.stdout)
         self.assertIn('no session was spawned', proc.stdout)
 
@@ -181,7 +181,9 @@ class TestHandoff(Base):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(sb.read_signal('cyc', NODE)['summary'], 'I produced nothing')
         self.assertEqual(sb.current_node(), NODE)
-        self.assertEqual(sb.close_round(NODE)['action'], 'stop_pipeline')
+        settled = sb.settle(NODE)
+        self.assertEqual(settled['action'], 'settle')
+        self.assertTrue(settled['parked'])
         self.assertEqual(sb.dag_status(NODE), 'shelved')
 
     def test_outputs_that_are_not_a_json_object_are_refused(self):
@@ -217,13 +219,13 @@ class TestHandoff(Base):
 
         That other slot has neither a note nor a `started` stamp right now -- exactly the state
         that "write the next prompt in" would pick. The handoff command reads the next step once
-        and hands it back; landing a prompt is the close's job.
+        and hands it back; landing a prompt is the next word's job (`advance`).
         """
         sb = self.make()
         sb.add_node(NODE, 'A', mode='auto')
         sb.add_node(NODE2, 'B', mode='auto')
         sb.start_cycle(tags=['coding'])
-        sb._tool('cycle', 'hold', 'cyc', NODE2, cli=True)
+        sb.hold(NODE2)
         self.assertEqual(sorted(sb.holding_ids()), sorted([NODE, NODE2]),
                          'both slots are not in hand')
 
@@ -239,14 +241,13 @@ class TestHandoff(Base):
                          'this run touched the two slots in hand')
 
     def test_it_reads_the_next_step_instead_of_driving_it(self):
-        """Handing in a note reads the next step through the read-only `plan`; the writer's
-        `record` is outside this command's path.
+        """Handing in a note reads the next step through the read-only `plan`; no writing word is
+        on this command's path at all.
 
-        `record` is the conductor's mechanical routine: it applies, and it fills prompts in for
-        the slots in hand. The handoff session reads the next step once and hands it back --
-        closing a slot, picking the next one and landing the next prompt are the close's job. The
-        one place it writes itself is the degradation marker (`marker.record`): the stamp left for
-        a human to take over when the note cannot be written.
+        `settle` and `advance` are the writing words: one records a node, the other claims, lands
+        the material and opens the session. The handoff session reads the next step once and hands
+        it back. The one place it writes itself is the degradation marker (`marker.record`): the
+        stamp left for a human to take over when the note cannot be written.
         """
 
         def receiver(node):
@@ -282,12 +283,12 @@ class TestSignalGuards(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         # `signal.py` writes only completed / failed / stopped; a `running` ticket is what
         # `cycle retry` leaves behind while a retry is being prepped.
         sb.write_signal('cyc', NODE, 'pending', 'still running')
 
-        action = sb.next()
+        action = sb.plan()
 
         self.assertEqual(action['action'], 'wait')
         self.assertFalse(action.get('applied'))
@@ -299,19 +300,19 @@ class TestSignalGuards(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_raw_signal('cyc', NODE, payload='{ this is not json')
         before = sb.tree_hashes()
 
         with self.assertRaises((ValueError, RuntimeError)):
-            sb.next()
+            sb.advance()
         self.assertEqual(sb.tree_hashes(), before)
 
     def test_an_absent_ticket_means_the_node_is_still_being_dispatched(self):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         self.assertIsNone(sb.read_signal('cyc', NODE))
         self.assertEqual(sb.plan()['action'], 'dispatch')
 

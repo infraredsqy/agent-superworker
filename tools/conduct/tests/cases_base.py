@@ -27,12 +27,12 @@ NODE3 = 'cccccccc-3333-4333-8333-cccccccccccc'
 
 # No `pause`: nothing produces one. The vocabulary lives in `conduct_pipeline.ACTIONS`; these names are
 # the ones a caller must be ready to handle, and `test_actions_are_the_whole_vocabulary` keeps the
-# two in step. `open_node` is the planner's own step (it carries the `cycle hold` command), and
+# two in step. `open_node` is the planner's own step (it carries the `hold` command), and
 # `insert_node` is an insertion source's step (the graph grew a node; nothing was opened and the new
-# node is not pinned). No caller ever receives `open_node`, and `insert_node` reaches one only
-# as the answer to its own closing call -- what follows it is the next dispatch's pick.
+# node is not pinned). No caller ever receives `open_node`, and `settle` is the closing reading a
+# worker's own `sw settle` writes down -- never returned by a forward plan.
 ACTION_VOCABULARY = {'dispatch', 'open_node', 'insert_node', 'stop_pipeline', 'wait', 'ask_user',
-                     'no_cycle'}
+                     'no_cycle', 'settle'}
 
 
 def skill_of(action):
@@ -84,8 +84,8 @@ class Base(unittest.TestCase):
         """`conduct_pipeline.py` as a real process: the module's own entry, driven the shipped way."""
         return run_argv([PIPELINE_PATH, *args], check=False)
 
-    def run_to_stop(self, sb, cycle='cyc', closer=None, worker=None, max_steps=80):
-        driver = Driver(sb, cycle, closer=closer, worker=worker, max_steps=max_steps)
+    def run_to_stop(self, sb, cycle='cyc', worker=None, max_steps=80):
+        driver = Driver(sb, cycle, worker=worker, max_steps=max_steps)
         return driver.run(), driver
 
     def ready_sandbox(self, extra_nodes=0, cli=False):

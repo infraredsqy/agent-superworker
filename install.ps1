@@ -1,4 +1,4 @@
-﻿# agent-pathfinder (sw) install: link the skills into one host's root, put `sw` on PATH, self-check.
+﻿# agent-superworker (sw) install: link the skills into one host's root, put `sw` on PATH, self-check.
 #
 #   pwsh -File install.ps1 -SkillsFor zcode             link the skills into ~/.agents/skills (what ZCode reads)
 #   pwsh -File install.ps1 -SkillsFor none              no links at all: PATH and the language record only
@@ -79,7 +79,7 @@ function Act([string]$what, [string]$detail, [scriptblock]$action) {
 
 function Get-SkillLangs([string]$checkout) {
     # What a checkout offers: `skills\<lang>\shared\superworker`, one level down. This is also the
-    # signature that tells an agent-pathfinder checkout from any other directory that has a `bin`.
+    # signature that tells an agent-superworker checkout from any other directory that has a `bin`.
     $dir = Join-Path $checkout 'skills'
     if (-not (Test-Path -LiteralPath $dir)) { return @() }
     return @(Get-ChildItem -LiteralPath $dir -Directory | Where-Object {
@@ -92,7 +92,7 @@ function Test-Reparse([string]$path) {
 }
 
 function Test-SwBin([string]$dir) {
-    # An agent-pathfinder checkout's `tools\bin`: the two signatures are `sw.py` and a skill tree
+    # An agent-superworker checkout's `tools\bin`: the two signatures are `sw.py` and a skill tree
     # two levels up. Recognizing it is what lets another checkout's PATH entry be removed.
     if (-not $dir) { return $false }
     $checkout = Split-Path -Parent (Split-Path -Parent $dir)

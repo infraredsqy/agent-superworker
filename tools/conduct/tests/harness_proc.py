@@ -1,5 +1,5 @@
 """The real subprocesses and the CLI-call helpers: `_run_proc`, `run_state_manage`, `run_dag`,
-`run_signal`, `run_handoff`, plus the small CLI helpers `_cycle_of`, `_kw`, `_json_out`.
+`run_signal`, `run_handoff`, plus the small CLI helper `_json_out`.
 `run_state_manage` stays a module-level global: the test suite patches it through this module
 object, and every call site must see the patch.
 """
@@ -13,7 +13,7 @@ from harness_env import DAG_MANAGE, HANDOFF_PY, SIGNAL_PY, STATE_MANAGE, run_arg
 
 __all__ = [
     "_run_proc", "run_state_manage", "run_dag", "run_signal", "run_handoff",
-    "_cycle_of", "_kw", "_json_out",
+    "_json_out",
 ]
 
 
@@ -46,64 +46,20 @@ def run_signal(project: Path, cycle_id, node_id, status, summary='', outputs=Non
 
 
 def run_handoff(project: Path, cycle_id, node_id, status, summary='', outputs=None,
-                dry_run=False, check=True):
-    """The worker's one command: write the node's ticket. The close is `next --after <node>`.
+                check=True):
+    """The worker's one report: write the node's ticket. The close is `settle <node>`.
 
-    `python handoff.py <cycle> <node> <status> -s "..." -o '{...}'`. `--dry-run` keeps
-    dsh-spawn.ps1 out of the tests.
+    `python handoff.py <cycle> <node> <status> -s "..." -o '{...}'`. It opens no session -- the
+    session half is `advance`'s / `dispatch`'s -- so there is no drill flag to hold.
     """
     argv = [HANDOFF_PY, cycle_id, node_id, status,
             '-s', summary, '-o', json.dumps(outputs or {}, ensure_ascii=False)]
-    if dry_run:
-        argv.append('--dry-run')
     return _run_proc(project, argv, check=check)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Small pieces the sandbox leans on
 # ═══════════════════════════════════════════════════════════════════════════════
-
-def _cycle_of(extra):
-    """The cycle name in an extra-argument list, or None.
-
-    `--cycle X` is the CLI spelling; `_cycle X` is how the harness names the same thing on the
-    in-process path (there is no argv to parse there, so plan() gets it as an argument).
-    """
-    extra = list(extra)
-    for token in ('--cycle', '_cycle'):
-        if token in extra:
-            return extra[extra.index(token) + 1]
-    return None
-
-
-def _kw(extra):
-    """`next --after <node> --continue --note x` -> plan()/apply() keyword arguments.
-
-    `_cycle X` is how the in-process path names the cycle the CLI spells `--cycle X`: there is no
-    argv to parse here. `_after <node>` is the same for the closing call's node: the CLI's `--after`
-    becomes an argument (a cycle can hold several nodes, so the node being closed is an argument
-    now), while the `--node` / `--continue` / `--note` closing answers stay keywords.
-    """
-    out = {'decision': None, 'node': None, 'note': '', 'after': None}
-    i = 0
-    while i < len(extra):
-        token = extra[i]
-        if token == '--continue':
-            out['decision'] = 'continue'; i += 1
-        elif token == '--stop':
-            out['decision'] = 'stop'; i += 1
-        elif token == '--node':
-            out['node'] = extra[i + 1]; i += 2
-        elif token == '--note':
-            out['note'] = extra[i + 1]; i += 2
-        elif token == '_after':
-            out['after'] = extra[i + 1]; i += 2
-        elif token in ('--cycle', '_cycle'):
-            i += 2
-        else:
-            raise AssertionError(f'unsupported next option in the in-process path: {token!r}')
-    return out
-
 
 def _json_out(proc, argv):
     """Parse a tool's stdout, refusing to guess when the child produced no JSON at all.

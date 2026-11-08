@@ -2,8 +2,8 @@
 
 `TestContract.test_the_fast_path_and_the_cli_agree` is the case that keeps the in-process fast path
 and the shipped CLI agreeing file for file; `TestPurity` pins "plan writes nothing"; the guards are
-the invariants that survive from the old model. The closing call itself (one worker ending the node
-it just ran, and what a close refuses) lives in `cases_close.py`.
+the invariants that survive from the old model. The settle itself (one worker ending the node it just
+ran, and what a settle refuses) lives in `cases_close.py`.
 """
 
 from __future__ import annotations
@@ -33,21 +33,21 @@ __all__ = [
 
 
 class TestNodeOwnershipAcrossCycles(Base):
-    """One node belongs to one cycle at a time: a close is aimed by node, and a pick leaves what
+    """One node belongs to one cycle at a time: a settle is aimed by node, and a pick leaves what
     another line is holding alone.
 
-    `--after` is aimed by NODE, not by cycle: a node belongs to exactly one line, so the closing call
-    can settle the right line without being told its name.
+    `sw settle <node>` is aimed by NODE, not by cycle: a node belongs to exactly one line, so the
+    settle can record the right line without being told its name.
     """
 
     def two_lines(self):
         """Two auto cycles: `one` on a two-node line, `other` on a single-node line (`tail`).
 
-        Built on the fast in-process path on purpose: the subject is the closing call the CLI
-        runs, and only those calls go through the real process (`next_cli`). The fixture's own
-        cycle start / cycle status / close steps are scaffolding the tool consumes off disk,
-        and the fast path writes the same files the CLI would (one case in `TestContract` keeps
-        the two paths honest).
+        Built on the fast in-process path on purpose: the subject is the words the CLI runs, and
+        only those calls go through the real process (`settle_cli` / `plan_cli`). The fixture's own
+        cycle start / cycle status steps are scaffolding the tool consumes off disk, and the fast
+        path writes the same files the CLI would (one case in `TestContract` keeps the two paths
+        honest).
         """
         sb = self.make()
         a = sb.add_node(NODE, 'UI design', mode='auto')
@@ -60,25 +60,22 @@ class TestNodeOwnershipAcrossCycles(Base):
     def deliver(self, sb, cycle_id, node_id, status='completed'):
         sb.write_signal(cycle_id, node_id, status, 'done')
 
-    def hold(self, sb, cycle_id, node_id, status='completed'):
-        """Deliver the node AND close it, so the cycle is free to pick again.
-
-        `cycle hold` refuses to re-pin a cycle that is still holding a node, so a test that
-        wants the next pick has to end the step the way the pipeline does.
-        """
+    def settle_node(self, sb, cycle_id, node_id, status='completed'):
+        """Deliver the node AND settle it, so the cycle is free to pick again."""
         self.deliver(sb, cycle_id, node_id, status)
-        sb.close_node_call(node_id, cycle_id=cycle_id)
+        return sb.settle(node_id, cycle_id=cycle_id)
 
-    def test_after_settles_its_own_cycle_when_another_one_is_active(self):
+    def test_a_settle_names_its_own_cycle_when_another_one_is_active(self):
         """The node names its own line. Reading the cycle off "the single active one" would answer
         about a step that is not the caller's -- and the caller is the one session that must not
         have to know cycle bookkeeping."""
         sb, a, bridge, tail = self.two_lines()
         self.deliver(sb, 'one', a)
 
-        settled, proc = sb.next_cli('--after', a)
+        settled, proc = sb.settle_cli(a)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(settled['action'], 'settle')
         self.assertEqual(sb.path_nodes('one'), [a])
         self.assertEqual(sb.path_nodes('other'), [])
         self.assertEqual(sb.current_node('other'), tail)
@@ -94,10 +91,10 @@ class TestNodeOwnershipAcrossCycles(Base):
         self.assertEqual(sb.current_node('other'), tail)
 
         # The second line finishes its own node; the row behind the shelved one is still shelved.
-        self.hold(sb, 'other', tail)
+        self.settle_node(sb, 'other', tail)
         self.assertEqual(sb.cycle('other')['status'], 'inactive')
         sb.set_cycle_status('other', 'active')
-        action = sb.plan_for('other')
+        action = sb.plan('other')
 
         self.assertEqual(action['action'], 'stop_pipeline')
         self.assertIn(a, action['reason'])
@@ -111,21 +108,21 @@ class TestNodeOwnershipAcrossCycles(Base):
         """Another line being busy is not a fault of this line, so the two reasons must not read
         alike: a reader who cannot tell them apart goes hunting for a tag that is not there."""
         sb, a, bridge, tail = self.two_lines()
-        self.hold(sb, 'other', tail)
+        self.settle_node(sb, 'other', tail)
         sb.set_cycle_status('other', 'active')
-        action = sb.plan_for('other')
+        action = sb.plan('other')
 
         self.assertEqual(action['action'], 'stop_pipeline')
         self.assertIn('another cycle already occupies', action['reason'])
         self.assertNotIn('filter set', action['reason'])
 
     def test_an_inactive_line_settles_its_own_node_and_stays_out_of_service(self):
-        """The close gate does not look at the line's status: a stopped line is still pinned on the
+        """The settle gate does not look at the line's status: a stopped line is still pinned on the
         node it never closed out, and it stays pinned until it does.
 
         But this gate only records -- it books the step, marks the DAG, and writes not one word to
-        the status the human gave the line (inactive). `cycle hold` never runs: a line out of
-        service is not handed a next node to pick.
+        the status the human gave the line (inactive). `hold` never runs: a line out of service is
+        not handed a next node to claim.
         """
         sb, a, bridge, tail = self.two_lines()
         self.deliver(sb, 'one', a)
@@ -133,57 +130,56 @@ class TestNodeOwnershipAcrossCycles(Base):
         self.assertEqual(sb.cycle('one')['status'], 'inactive')
         before = sb.state()
 
-        settled, proc = sb.next_cli('--after', a)
+        settled, proc = sb.settle_cli(a)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(settled['action'], 'stop_pipeline')
+        self.assertEqual(settled['action'], 'settle')
+        self.assertFalse(settled['parked'], 'a line out of service had its status written again')
+        self.assertIn('only records', settled['note'])
         self.assertEqual(sb.path_nodes('one'), [a])
         self.assertEqual(sb.dag_status(a), 'completed')
         self.assertIsNone(sb.current_node('one'), 'a node was picked for an inactive line')
         self.assertEqual(sb.cycle('one')['status'], 'inactive',
                          'the tool wrote a cycle status the human owns')
         self.assertEqual(sb.current_node('other'), tail, 'the other line was disturbed')
-        self.assertNotIn('cycle hold', ' '.join(settled.get('did', [])))
+        self.assertNotIn('hold', ' '.join(settled.get('did', [])))
         self.assertNotIn('cycle status', ' '.join(settled.get('did', [])))
         self.assertNotEqual(before, sb.state(), 'only the accounting should have moved')
 
-    def test_a_continue_cannot_pry_an_inactive_line_open(self):
-        """`--continue` says "keep this line going", and this line is not tool-driven right now: the
-        close happens, carrying on does not."""
+    def test_an_advance_cannot_pry_an_inactive_line_open(self):
+        """`advance` on a line that is not in service claims nothing and opens nothing: the only
+        command that resumes a line is the human's, and it is named."""
         sb, a, bridge, tail = self.two_lines()
         self.deliver(sb, 'one', a)
         sb.set_cycle_status('one', 'inactive')
 
-        settled, proc = sb.spawn_next('--after', a, '--continue')
+        receipt = sb.advance('one')
 
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(settled['action'], 'stop_pipeline')
-        self.assertEqual(sb.path_nodes('one'), [a])
-        self.assertIsNone(sb.current_node('one'))
+        self.assertEqual(receipt['pinned'], [])
+        self.assertEqual(receipt['spawned'], [], 'a session was started for an inactive line')
+        self.assertFalse(receipt['parked'])
+        self.assertEqual(receipt['plan']['action'], 'ask_user')
+        self.assertIn('cycle status one active', receipt['plan']['hint'])
         self.assertEqual(sb.cycle('one')['status'], 'inactive')
-        self.assertNotIn('spawned', settled, 'a session was started for an inactive line')
-        self.assertIn('cycle status one active', settled['reason'],
-                      'the stop reason has to name the one command that resumes the line')
+        self.assertEqual(sb.current_node('one'), a)
 
-    def test_a_node_named_on_an_inactive_line_is_not_opened_and_the_reason_says_so(self):
-        """A name a human typed must not be swallowed in silence: `--node` is not opened on this
-        line, and the reason has to name the node that lost out."""
+    def test_a_settle_on_an_inactive_line_does_not_open_the_node_it_holds(self):
+        """A name a human typed must not be swallowed in silence: a line that is not in service is
+        never handed a successor, and the reason has to name the node that lost out."""
         sb, a, bridge, tail = self.two_lines()
         self.deliver(sb, 'one', a)
         sb.set_cycle_status('one', 'inactive')
 
-        settled, proc = sb.next_cli('--after', a, '--node', bridge)
+        settled, proc = sb.settle_cli(a)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(settled['action'], 'stop_pipeline')
         self.assertIsNone(sb.current_node('one'), f'{bridge} was opened anyway')
-        self.assertIn(bridge, settled['reason'])
-        self.assertIn('was not opened', settled['reason'])
+        self.assertIn(a[:8], settled['note'])
         self.assertEqual(sb.cycle('one')['status'], 'inactive')
 
-    def test_a_next_aimed_at_an_inactive_line_neither_picks_nor_dispatches(self):
-        """A driven `next` does not touch a line that is not active -- whether or not another line
-        is running.
+    def test_a_plan_aimed_at_an_inactive_line_neither_picks_nor_dispatches(self):
+        """A driven plan does not touch a line that is not active -- whether or not another line is
+        running.
 
         The judgement rides on this line's own status: another line may be running, and a stopped
         line is still not picked from and not dispatched -- the human never put it to work.
@@ -192,21 +188,21 @@ class TestNodeOwnershipAcrossCycles(Base):
         sb.set_cycle_status('one', 'inactive')
         before = sb.state()
 
-        aimed = sb.plan_for('one')
+        aimed = sb.plan('one')
         self.assertEqual(aimed['action'], 'ask_user')
         self.assertIn('not active', aimed['question'])
         self.assertIn('cycle status one active', aimed['hint'])
-        self.assertEqual(sb.state(), before, 'a driven next wrote something')
+        self.assertEqual(sb.state(), before, 'a driven plan wrote something')
 
         # the same refusal through the shipped process, which is where the flag is spelled
-        cli_action, proc = sb.next_cli('--cycle', 'one', '--plan', plan=True)
+        cli_action, proc = sb.plan_cli('--cycle', 'one')
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(cli_action['action'], 'ask_user')
         self.assertIn('cycle status one active', cli_action['hint'])
         self.assertEqual(sb.state(), before)
         self.assertFalse(cli_action.get('commands'))
 
-        # The other line is still in service, and a bare `next` drives THAT one -- the parked line
+        # The other line is still in service, and a bare `plan` reads THAT one -- the parked line
         # stays exactly as the human left it.
         bare = sb.plan()
         self.assertNotEqual(bare['action'], 'ask_user')
@@ -214,7 +210,7 @@ class TestNodeOwnershipAcrossCycles(Base):
         self.assertEqual(sb.current_node('one'), a, 'the parked line moved')
         self.assertEqual(sb.current_node('other'), tail)
 
-    def test_a_bare_next_with_every_line_out_of_service_names_the_way_back(self):
+    def test_a_bare_plan_with_every_line_out_of_service_names_the_way_back(self):
         """With no line in service at all, the answer must not be "no cycle": the lines are right
         there, stopped, and possibly still pinned on a node."""
         sb, a, bridge, tail = self.two_lines()
@@ -413,18 +409,18 @@ class TestContract(Base):
         for choices in scopes:
             self.assertEqual(list(pipeline.SCOPES), choices)
 
-    def test_next_reads_the_parsed_line_itself(self):
-        """`cmd_next` / `cmd_dispatch` each take the parsed namespace alone and read the fields off
-        it themselves.
+    def test_the_words_read_the_parsed_line_itself(self):
+        """`cmd_plan` / `cmd_hold` / `cmd_settle` / `cmd_advance` / `cmd_dispatch` each take the
+        parsed namespace alone and read the fields off it themselves.
 
-        With a string of positional arguments (12 of them) on the forwarding line, adding one flag
-        to `next` meant touching the parser, that line and the function's signature at once; most of
-        them re-derived a default argparse already has, and two computed the same answer twice. Cut
-        down to one namespace, a new flag is one parser line plus the line that reads it.
+        With a string of positional arguments on a forwarding line, adding one flag to a word meant
+        touching the parser, that line and the function's signature at once; most of them
+        re-derived a default argparse already has, and two computed the same answer twice. Cut down
+        to one namespace, a new flag is one parser line plus the line that reads it.
         """
-        source = (CONDUCT_DIR / 'state' / 'nextcmd.py').read_text(encoding='utf-8')
+        source = (CONDUCT_DIR / 'state' / 'plancmd.py').read_text(encoding='utf-8')
         tree = ast.parse(source)
-        for name in ('cmd_next', 'cmd_dispatch'):
+        for name in ('cmd_plan', 'cmd_hold', 'cmd_settle', 'cmd_advance', 'cmd_dispatch'):
             fn = next(node for node in tree.body
                       if isinstance(node, ast.FunctionDef) and node.name == name)
             self.assertEqual([a.arg for a in fn.args.args], ['args'],
@@ -468,8 +464,8 @@ class TestContract(Base):
 
     def test_no_action_in_a_whole_run_carries_commands(self):
         """The one rule that survived every rewrite, plus what a whole run is made of: the actions
-        a caller ever sees are the two driving kinds -- `dispatch` to open a step, `stop_pipeline`
-        to end the run."""
+        a caller ever sees are the driving kinds -- `dispatch` to open a step, `wait` while a ticket
+        is owed, `settle` to end it."""
         sb = self.make()
         sb.add_chain(3)
         sb.start_cycle()
@@ -477,7 +473,7 @@ class TestContract(Base):
 
         self.assertEqual(driver.no_commands_anywhere(), [])
         self.assertIn('dispatch', driver.kinds())
-        self.assertIn('stop_pipeline', driver.kinds())
+        self.assertIn('settle', driver.kinds())
 
     def test_every_action_the_conductor_can_receive_is_one_it_knows(self):
         sb = self.make()
@@ -485,12 +481,10 @@ class TestContract(Base):
         sb.start_cycle()
         final, driver = self.run_to_stop(sb)
 
-        known = set(ACTION_VOCABULARY) | {'open_node'}
-        # `open_node` is the planner's own step and never reaches a caller: what a caller sees is
-        # the dispatch behind it, which `apply` produces by re-planning.
         seen = set(driver.kinds()) | {final['action']}
-        self.assertTrue(seen <= known, f'unknown action(s): {seen - known}')
-        self.assertNotIn('open_node', seen)
+        self.assertTrue(seen <= set(ACTION_VOCABULARY), f'unknown action(s): {seen - set(ACTION_VOCABULARY)}')
+        self.assertIn('dispatch', seen)
+        self.assertIn('settle', seen)
 
     def test_the_tools_own_progress_claims_match_the_disk(self):
         """`applied` has to mean something moved: the driver compares its own snapshots, and this
@@ -538,12 +532,13 @@ class TestContract(Base):
             sb.start_cycle()
 
         for sb in (fast, slow):
-            action = sb.next()
+            action = sb.advance()['plan']
             self.assertEqual(action['action'], 'dispatch')
             WorkerSession(sb).work(action)
-            waiting = sb.next()
+            waiting = sb.plan()
             self.assertEqual(waiting['action'], 'wait')
-            sb.close_round(waiting['node_id'])
+            settled = sb.settle(waiting['node_id'])
+            self.assertEqual(settled['action'], 'settle')
 
         self.assertEqual(normalise(fast.state()), normalise(slow.state()))
         for rel in ('.superworker/signals/cyc/%s.json' % NODE, '.superworker/ideas.json'):
@@ -577,7 +572,7 @@ class TestPurity(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done')
         before = sb.tree_hashes()
         action = sb.plan()
@@ -588,7 +583,7 @@ class TestPurity(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        action = sb.next()
+        action = sb.advance()['plan']
         self.assertEqual(Path(action['prompt']).read_text(encoding='utf-8'), action['prompt_text'])
 
 
@@ -698,10 +693,10 @@ class TestTheInsertionActionShape(Base):
       * the planned shape: an action that has not run yet still carries the commands and the text
         builder (`apply` consumes them), but a PREVIEW must not hand any of that to a caller -- not
         at the top, and not inside each nested `insertions[*]`;
-      * the walk: an insertion is where a `next` stops -- the pick's graph edit comes back as
-        `insert_node`, the caller commits, and the next step dispatches -- so the caller always sees
-        the graph edit before the session, and no single call grows the graph by a burst: one plugin
-        answers with one node, and the calls in one step are the plugins'.
+      * the walk: an insertion is where a step stops -- a pick's graph edit comes back as
+        `insert_node`, `advance` lands it, the caller commits, and the next round dispatches -- so the
+        caller always sees the graph edit before the session, and no single call grows the graph by a
+        burst: one plugin answers with one node, and the calls in one step are the plugins'.
     """
 
     def fixture(self, sb, timing='close'):
@@ -735,23 +730,27 @@ class TestTheInsertionActionShape(Base):
         sb.add_node(NODE, 'Write code A', mode='auto', tags=['coding'])
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
         self.fixture(sb)
 
-        planned = pipeline.plan(sb.root, 'cyc', after=NODE, self_verified=True)
+        planned = pipeline.plan(sb.root, 'cyc', after=NODE)
+        item = planned['insertions'][0]
         text = pipeline.render_action(dict(planned), as_json=False, preview=True)
 
-        self.assertIn('the fixture measured 42, over its line', text,
-                      f'the source\'s own sentence is not printed as written: {text}')
-        self.assertIn(f'Write code B  ({NODE2})', text,
+        self.assertEqual(planned['action'], 'settle', planned)
+        self.assertEqual('the fixture measured 42, over its line', item['why'],
+                         f'the source\'s own sentence did not travel as written: {item}')
+        self.assertEqual(NODE2, item['before_node'],
+                         'the core did not say where it put the node')
+        self.assertIn(f'between {NODE} and {NODE2}', text,
                       f'the landing spot is not the core\'s reading of the graph: {text}')
         # ... and the free-shape dict still travels untouched: it is data, not a rendering instruction
-        self.assertEqual({'metric': 'fixture'}, planned['insertions'][0]['fields'])
+        self.assertEqual({'metric': 'fixture'}, item['fields'])
 
     def test_a_previewed_insertion_hands_no_runbook_to_the_caller(self):
-        """`next --plan` on a close a plugin answers with an insertion: the JSON carries no
-        `commands`, no `add_command` and no `spec_of` **anywhere**, at any depth.
+        """`sw plan --after <node>` on a settle a plugin answers with an insertion: the JSON carries
+        no `commands`, no `add_command` and no `spec_of` **anywhere**, at any depth.
 
         A preview is not executable -- that is the invariant `render_action` owns -- and an insertion
         carries its graph edits twice (mirrored at the top and once per insertion). Scrubbing only
@@ -762,12 +761,12 @@ class TestTheInsertionActionShape(Base):
         sb.add_node(NODE, 'Write code A', mode='auto', tags=['coding'])
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
-        sb.next()
+        sb.advance()
         sb.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
         self.fixture(sb)
 
-        planned = pipeline.plan(sb.root, 'cyc', after=NODE, self_verified=True)
-        self.assertEqual('insert_node', planned['action'], planned)
+        planned = pipeline.plan(sb.root, 'cyc', after=NODE)
+        self.assertEqual('settle', planned['action'], planned)
         self.assertTrue(planned.get('commands'), 'the close action carries the edits that must run')
         self.assertTrue(planned['insertions'][0].get('add_command'),
                         'the nested copy lost the `add` the writer runs')
@@ -808,20 +807,25 @@ class TestTheInsertionActionShape(Base):
         self.assertEqual('active', sb.cycle()['status'])
         self.assertEqual(1, len(sb.dag()['nodes']), 'plan wrote the node it only promised')
 
-        walked = sb.next()
+        walked = sb.advance()
 
-        self.assertEqual('insert_node', walked['action'],
-                         f'a bare next did not stop on the insertion itself: {walked}')
+        self.assertEqual(1, len(walked['inserted']),
+                         f'a bare advance did not land the insertion itself: {walked}')
+        self.assertEqual([], walked['pinned'], 'a graph edit pinned a node')
         nodes = sb.dag()['nodes']
         made = [uid for uid in nodes if uid != NODE]
         self.assertEqual(1, len(made), f'the fixture inserted no node: {nodes}')
+        self.assertEqual([walked['inserted'][0]], made)
         self.assertEqual([], nodes[made[0]]['dependencies'],
                          'a pick insertion has no parent: it is ready when it exists')
         self.assertTrue((sb.root / '.superworker' / 'nodes' / made[0] / 'spec.md').is_file(),
                         'the inserted node has no text')
+        self.assertEqual([], sb.holding_ids(), 'the insertion claimed a node')
+        self.assertFalse((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / made[0]).exists(),
+                         'an insertion opened a session')
 
-        dispatched = sb.next()
+        dispatched = sb.advance()['plan']
 
         self.assertEqual('dispatch', dispatched['action'], dispatched)
-        self.assertEqual(NODE, dispatched['node_id'],
-                         'the step after the insertion did not dispatch the picked node')
+        self.assertIn(dispatched['node_id'], (NODE, made[0]),
+                      'the step after the insertion dispatched neither node in the graph')

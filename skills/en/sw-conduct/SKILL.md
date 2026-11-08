@@ -37,13 +37,13 @@ them in `run.md`'s "Facts checked".
 | Setting | Values | Read from | Which step it changes |
 |---|---|---|---|
 | The `.superworker/` flavour | commit / local | judged at step 0's sync | how many pulls step 0 does, and where the close's merge-back and commit-push go (see "Close out") |
-| Mode | `manual` / `checkpoint` / `auto` | `info` | whether it stops, and whether it asks a human (see "Mode") |
-| Look at the weight first | `light` / absent = `standard` | `info`'s `weight` | who does the work at the execute step (see "Look at the weight first") |
+| Mode | `manual` / `checkpoint` / `auto` | `dag info` | whether it stops, and whether it asks a human (see "Mode") |
+| Look at the weight first | `light` / absent = `standard` | `dag info`'s `weight` | who does the work at the execute step (see "Look at the weight first") |
 | Method | the `method: <skill name>` line in the spec; absent = none | read `spec.md` | who runs this node this run, and under which skill (see "Method") |
 | Test tier and verification | `full` / `minimal` | `sw config get test_tier` | what each step verifies, and whether tests get written (see "Test tier and verification") |
 | worktree mode | `off` / `fork` / `reuse` | `sw config get worktree_mode` | the two steps, prepare's fork and the close's merge-back (see "Parallel: worktree") |
 | The subagent cap | a positive integer | `sw config get max_agents` | how the dispatched work is batched (see [`../shared/superworker/subagents.md`](../shared/superworker/subagents.md)) |
-| Parallel setting | how many nodes this line itself opened | the `Policy:` line of `sw cycle current` | how many nodes this run runs at once (see "Parallel: worktree") |
+| Parallel setting | how many nodes this line itself opened | the `Policy:` line of `cycle current` | how many nodes this run runs at once (see "Parallel: worktree") |
 | Node tag | `writing` / `coding` / `art` | on the graph, written down by sw-route | it only affects who this line picks (this flow only reads it) |
 
 The `.superworker/` flavour is written on disk by itself, with no second record: if the project repo tracks
@@ -55,7 +55,7 @@ its own.
 ### Mode
 
 mode is the node's own property, written down by sw-route through `--mode`; you follow the one
-`info` reads out.
+`dag info` reads out.
 
 | mode | The loop | How this run goes |
 |---|---|---|
@@ -66,7 +66,7 @@ mode is the node's own property, written down by sw-route through `--mode`; you 
 For which step each of the three has its human confirmation point on, and why it is fixed that
 way, see `docs/conduct-state.md` "conclusions and stopping".
 
-- A node whose mode is `checkpoint` / `auto` (read it with `sw dag info`) may never call
+- A node whose mode is `checkpoint` / `auto` (read it with `dag info`) may never call
   `ask_user_question` at any point: when unsure, pick the one option closest to the intent
   yourself, and write the choice and the reason into `run.md`'s "Autonomous decisions" — that is
   the user's way in to double-check. `manual` is not bound by this: it is in the conversation all
@@ -138,7 +138,7 @@ seconds**; without the evidence it counts as never run.
 When neither the spec nor the project docs names a verification command, stop and ask the user to
 fill it in through sw-route — that is sw-route's debt. When the project says `minimal` and this line
 carries a reading that asks for the full suite's wall clock, report the contradiction to the user,
-together with the command that turns it off (`sw cycle policy <cycle> <that key> off` — the key is a
+together with the command that turns it off (`cycle policy <cycle> <that key> off` — the key is a
 **knob name**, read off `sw doctor`'s plugin listing: under the plugin that owns the reading it
 prints the knobs that plugin declares, one per line, each with its own summary sentence — the
 reading's slot name is not a key and is rejected).
@@ -175,7 +175,7 @@ never changes them.
 
 The concurrency cap has three layers, outside in: the graph's dependency edges (who blocks whom)
 decide which nodes **may** sit side by side; this line's `parallel` (the `Policy:` line of
-`sw cycle current`) decides how many nodes the line **holds** at once; `sw config get max_agents`
+`cycle current`) decides how many nodes the line **holds** at once; `sw config get max_agents`
 (see [`../shared/superworker/subagents.md`](../shared/superworker/subagents.md)) decides how many subagents this
 session has **in flight** at once. The third layer is the outermost: every node you hold may have
 its own children open at the same time, and together they may not cross it.
@@ -186,17 +186,17 @@ its own children open at the same time, and together they may not cross it.
 
 | How it came in | The target node | The close |
 |---|---|---|
-| The user typed `/sw-conduct <node id or keyword>` | the node in the argument; with none, locate it with `search`, and when several hit, lay them out for the user to pick | report the result to the user, run no close commands |
+| The user typed `/sw-conduct <node id or keyword>` | the node in the argument; with none, locate it with `dag search`, and when several hit, lay them out for the user to pick | report the result to the user, run no close commands |
 | A pipeline dispatch (the call line carries `[pipeline]`) | the node id on the call line | the chain under "Close out" |
 
-**Then, which node to start from** — take one look with `sw cycle list`:
+**Then, which node to start from** — take one look with `cycle list`:
 
 | Input | Where it goes |
 |---|---|
 | `/sw-conduct status` | `cycle list` + `cycle current`, read only, no advance |
-| `/sw-conduct`, exactly one active cycle | carry on: `next --spawn --json` (a bare `next` follows this one active line) |
-| `/sw-conduct`, several active cycles | a bare `next` gets refused, and the error lists the candidate lines and points at `--cycle` — read the candidates out to the user, and whichever one they name is the one: `next --cycle <cycle id> --spawn --json` (without `--spawn` it only pins the node and writes the prompt, with no session to take over) |
-| `/sw-conduct`, the lines are all there, just none `active` | `cycle status <id> active` puts it back in service, then carry on. A line not in service cannot be driven by naming it either (`next` answers `ask_user` and gives you that command as it stands), but the node it pins can still be closed — recorded, not dispatched; to redo a `shelved` node, first `sw dag revive <node_id>`. With several candidates, read them out and let the user name one — do not pick for him; that decision belongs in sw-route, settled together with the nodes, and coming straight from there the line should already be `active` — take the row above |
+| `/sw-conduct`, exactly one active cycle | carry on: `advance --json` (a bare `advance` follows this one active line) |
+| `/sw-conduct`, several active cycles | a bare `advance` gets refused, and the error lists the candidate lines and points at `--cycle` — read the candidates out to the user, and whichever one they name is the one: `advance --cycle <cycle id> --json` (it claims the nodes this line has free slots for, lands each prompt, and has the opener open one session per cell — see "The dispatch path") |
+| `/sw-conduct`, the lines are all there, just none `active` | `cycle status <id> active` puts it back in service, then carry on. A line not in service cannot be driven by naming it either (`advance` answers `ask_user` and gives you that command as it stands), but a node this line holds can still be settled — recorded, not dispatched; to redo a `shelved` node, first `sw dag revive <node_id>`. With several candidates, read them out and let the user name one — do not pick for him; that decision belongs in sw-route, settled together with the nodes, and coming straight from there the line should already be `active` — take the row above |
 | `/sw-conduct`, no cycle yet | take "Start-up" below |
 | The user just says what they want done, no cycle yet | take "Start-up", with `--title` set to that sentence |
 
@@ -205,7 +205,7 @@ the graph should be designed through sw-route first):
 
 ```pwsh
 sw cycle start <slug> --title "<the user's own words>" --tags coding,writing
-sw next --spawn --json
+sw advance --json
 ```
 
 With an active cycle already there, `cycle start` gets refused, and only `--force` lets it through
@@ -213,17 +213,19 @@ With an active cycle already there, `cycle start` gets refused, and only `--forc
 call without it, and you write it even when the graph has just one line. `--title` takes only the
 user's own words; it goes into the cycle's name and into no prompt.
 
-That one `next --spawn` command spawns the execution session of every node in this line's hand
-(one by default), and **your run ends here — do not wait on it here**: either this session stops
-outright, or it carries on through a `[pipeline]` call line. When it is done, tell the user how
-far you will push; in full auto, say: "Full auto is on; I will keep pushing until the graph has
-no ready node left, or some instruction says stop."
+`advance` claims the nodes this line has free slots for (the head of the graph ranking, as many as
+`parallel` allows), lands the material (each prompt and this round's run doc), and hands the cells
+in hand to the opener, which opens one session per cell. **Your run ends here — do not wait on it
+here**: either this session stops outright, or it carries on through a `[pipeline]` call line. When
+it is done, tell the user how far you will push; in full auto, say: "Full auto is on; I will keep
+pushing until the graph has no ready node left, or some instruction says stop."
 
 **How far this line runs depends on the node's own mode alone**: a `checkpoint` node stops at its
-close and hands over to a human; a `manual` node lives in the conversation throughout, and once
-the user explicitly lets it through ("mark it complete, continue") the line carries on like
-`auto`; an `auto` node opens the next one itself when it is done. A line stopping is
-`cycle status <cycle> inactive`, which the close command writes itself; a human puts it back in
+close and hands over to a human; a `manual` node lives in the conversation throughout, and once the
+user explicitly lets it through ("mark it complete, continue") the line carries on like `auto`; an
+`auto` node opens the next one itself when it is done. **A stop is the plan's answer**: when the
+plan says it stopped (`checkpoint`, a non-delivered node with `when_shelved=stop`, or nothing ready
+left) and nothing is in hand, the settle turns the line `inactive` itself; a human puts it back in
 service with `cycle status <cycle> active`, and only then does it pick the next node (why only a
 human writes that, see `docs/conduct-state.md` "the two ways in").
 
@@ -275,15 +277,15 @@ sw instruction list --project <absolute path to the project root>
   archive an instruction, and only the user can put it back; a session does not touch that
   record.
 - **This line's own policies** (`when_shelved`, the two debt lines, `spawner`) are on
-  the `Policy:` line of `sw cycle current`; write them with
+  the `Policy:` line of `cycle current`; write them with
   `cycle policy <cycle> <key> <value>`, and cancel a numeric one with `off`.
 
 **2 | Read**, in one go before touching anything:
 
 1. `sw dag --help` to confirm the full set of commands
-2. `info <id> --verbose` for the node's detail and its direct dependencies, `context <id>` for the
-   full up- and downstream
-3. `open <id>` for the `spec.md` path, and read it; a missing file means this node has no
+2. `sw dag info <id> --verbose` for the node's detail and its direct dependencies,
+   `sw dag context <id>` for the full up- and downstream
+3. `sw dag open <id>` for the `spec.md` path, and read it; a missing file means this node has no
    requirements written yet — stop and ask the user to write the spec through sw-route, since
    filling in requirements is not this flow's job
 4. a `method: <skill name>` line in the spec → read `~/.agents/skills/<name>/SKILL.md`, and the
@@ -293,7 +295,7 @@ sw instruction list --project <absolute path to the project root>
 6. read the project's CLAUDE.md and the docs under docs/ that bear on this node
 7. read `sw config get test_tier`, `sw config get worktree_mode` and `sw config get max_agents`, and record
    them in `run.md`'s "Facts checked"; which nodes this line holds at once, and what `parallel`
-   is, are in the readings of `sw cycle current` (one `Node:` line per node, `parallel` on the
+   is, are in the readings of `cycle current` (one `Node:` line per node, `parallel` on the
    `Policy:` line)
 
 **3 | Clear the spec** — until this gate is fully cleared, this node does not open:
@@ -528,33 +530,37 @@ The close walks these steps in order, and only steps 1 and 2 start at the same t
 | 6 close the node | the three commands below |
 | 7 commit | only the graph, cycle and note written down by closing the node are left to collect, see "Then commit" |
 | 8 push | every commit that should be pushed is pushed successfully before going on |
-| 9 dispatch | go by the `action` step 6 returns |
+| 9 advance | `advance --cycle <cycle> --json`, or the host runs that one itself: go by the `action` the plan gives |
 
 **Steps 1 and 2 are done together**: Doc-sync is a subagent, so you are free the moment it is
 dispatched — write `run.md`'s four sections in that window, and add the docs it synced to the
 change list when it comes back. Step 3's merge-back precondition does not change: it starts only
 once both have landed.
 
-**Dispatch comes last**: close the node first, then commit, then push, and dispatch only at the
-end (why the order is nailed down, see `docs/conduct-state.md` "how a session is woken and closed
-out").
+**The advance comes last**: close the node first, then commit, then push, and let `advance` carry
+the line on only at the end (why the order is nailed down, see `docs/conduct-state.md` "how a
+session is woken and closed out").
 
 Coming in through a pipeline dispatch, run these three in order. `<cycle>` is **the line that
-holds this node**: recognize it in the readings of `sw cycle current` by node id (one `Node:`
+holds this node**: recognize it in the readings of `cycle current` by node id (one `Node:`
 line per node); `<node>` is the id on the call line.
 
 ```pwsh
 sw handoff --form <cycle>   # what this line wants, and what the note looks like: fill it in as printed
 sw handoff <cycle> <node> completed -s "<one-line summary>" -o '<fill in from the line above>'
-sw next --after <node> --json
+sw settle <node> --json
 ```
 
 The `--form` one only prints the shape and moves no state; the
 `sw handoff <cycle> <node> completed -o …` one **writes the note only** — it closes no node and
-spawns no session; the `next --after` one **closes this node**, then settles the next one and
-writes its prompt to disk (the path is given by the command itself) — when a threshold is crossed
-it answers `insert_node` instead, which only puts nodes into the graph and has no prompt to write.
-None of the three spawns a session; for the note, see "The note and its readings".
+spawns no session; the `settle <node>` one **closes this node**: the verdict it reads off the
+ticket already on disk goes into the line's path, the claim is laid down, the graph node lands
+`completed` / `shelved`, and the close-time plugin seam runs — an offer there may insert a
+maintenance node into the graph. It pins nothing, opens no session, lands no prompt; when the plan
+says this round is over it turns the line `inactive`. To see first where the line would go,
+`plan --after <node> --json` is the closing rehearsal: read-only, not one byte written; `settle
+<node> --dry-run` reads the same and also writes nothing. None of the three spawns a session; for
+the note, see "The note and its readings".
 
 **Then commit** (the two flavours do not take the same road):
 
@@ -590,69 +596,78 @@ disk, committed and pushed nowhere.
 When `git push` is refused (another machine, or another line on this machine pushed first),
 `git pull --rebase` and push again; when it stops on a conflict, hand it to the user. **Every
 commit that should be pushed** goes through successfully before the next step. If it is truly
-stuck, stop and report to the user, giving them the `prompt` path: once the push is fixed,
-`sw dispatch <cycle>` re-sends it — the node is already closed, and does not need closing again.
+stuck, stop and report to the user with the one command that carries on: once the push is fixed,
+`advance --cycle <cycle>` picks the line up from there — the node has already been settled, and
+does not need settling again.
 
-Once the push succeeds, go by the `action` the `next --after` gave — it carries the commands to
-run and the words to say:
+Once the push succeeds, let `advance --cycle <cycle> --json` carry the line on — the `action` it
+answers carries the commands to run and the words to say:
 
-- `dispatch`: **hand in the ticket and stop** — the handoff is on disk and the node is closed, and
-  the host opens the next round itself (the panel's auto-relay, on by default); this session ends
-  here, and no dispatch command is run. Only when the relay is switched off, or the next round
-  fails to appear, does a person re-send it: `sw dispatch <cycle>` (add `--project <project root>`
-  when cwd is not the project root) starts one session for each node this line holds at that moment
-  (one node by default; the nodes whose sessions already started are skipped); it refuses to
-  dispatch when the line is not in service, so put the line back in service before re-sending
-- `insert_node`: nodes have just been put into the graph, **nothing was pinned** and there is no
-  prompt — commit and push as usual, then run `sw next --cycle <cycle> --spawn --json` and let the
-  picking rules dispatch them (this is where a debt node comes from, see "Debt nodes"
-  below)
+- `dispatch`: **hand in the ticket and stop** — the handoff is on disk and the node is settled, and
+  the opener opens the next sessions (the dry-run switch and a stand-in spawner aside); this
+  session ends here, and no dispatch command is run. Only when the next round fails to appear does
+  a person run that one command: `advance --cycle <cycle>` (or the sessions-only
+  `dispatch <cycle>`, with `--project <project root>` when cwd is not the project root) — a process
+  with no opener behind it answers `spawn_error` and claims nothing, reading out every prompt path
+  (see "The dispatch path")
+- the nodes the close inserted: the `settle` answer names them, each with where its own spec
+  landed — they hang in front of the node this close would have opened next, so the next pick
+  takes one first; the settle claims nothing and opens nothing. Commit and push as usual, then run
+  `advance --cycle <cycle> --json`: the picking rules pick them out, land each prompt and hand them
+  to the opener, which opens the sessions (with no opener, hand the user those prompt paths and
+  their lines; this is where a debt node comes from, see "Debt nodes" below)
 - `stop_pipeline`: say `reason` to the user as it stands (read `attention` out too when it has
-  content), then stop — it does not stop this line while other nodes are still in flight, and
-  `reason` will say so
-- `wait`: read its `note` / `close_with`, do what that command says, and **never poll**
+  content), then stop — a stop is the plan's answer, and the settle has already turned the line
+  `inactive`; it does not stop this line while other nodes are still in flight, and `reason` will
+  say so. To carry on: `cycle status <cycle> active`, then `advance --cycle <cycle>`
+- `wait`: read its `note` / `close_with`, do what that command says (the one closing this cell is
+  `settle <node>`), and **never poll**
 
 `node_shelved` inside `attention` = this node did not deliver, is out of play waiting for a human
 (it is marked `shelved` on the graph and its downstream is parked): to redo it,
 `sw dag revive <node_id>` puts it back to `todo`.
 
-**The `sw handoff` output needs no reading** (it is only a receipt); the `next --after` output is
-walked by its `action`, reading the `note` / `close_with` / `reason` / `attention` / `prompt` /
-`spec` it carries. Beyond that, run no other command and hand-write no state file.
+**The `handoff` output needs no reading** (it is only a receipt); the `settle` output is read for
+the nodes its seam inserted and the one `note` it carries, and the `plan` / `advance` output is
+walked by its `action`, reading the `note` / `close_with` / `reason` / `attention` it carries —
+`advance` prints the paths of the prompts it claimed and handed over. Beyond that, run no other
+command and hand-write no state file.
 
 **Typed in by hand** (no `[pipeline]`): report the result straight to the user, saying clearly
 where the products landed; the three commands do not run and nothing is dispatched, but commit
 and push run as usual.
 
-**A `checkpoint` node that gets here stops and waits for a human**: the `action` that
-`next --after` returns is `stop_pipeline`, and `reason` says "this round is done; the next node
-opens only once you say continue", appending the two commands that carry on. Tell the user what
-this round handed over and where the record landed, then wait for their answer — when they say
-continue, run in order:
+**A `checkpoint` node that gets here stops and waits for a human**: the plan's answer for this
+cell is `stop_pipeline`, and after the settle and the push the line is turned `inactive`, its
+`note` saying "this round is done; the next node opens only once you say continue", appending the
+two commands that carry on. Tell the user what this round handed over and where the record landed,
+then wait for their answer — when they say continue, run in order:
 
 ```pwsh
 sw cycle status <cycle> active
-sw next --spawn --json
+sw advance --cycle <cycle> --json
 ```
 
-Stopping turns the line `inactive` as always, so putting it back in service cannot be skipped;
-what `next --spawn` spawns is already the next node's session, and this session stops here.
-Commit and push still come before spawning the next node, not a byte skipped. The time between
-the node finishing and your answer coming back may be long, and by then that node and its record
-have settled — a session change along the way does not matter, the record is on disk.
+Stopping turns the line `inactive`, so putting it back in service cannot be skipped; `advance`
+claims the next node, lands its prompt and has the opener open the session, and this session stops
+here. Commit and push still come before that next session opens, not a byte skipped. The time
+between the node finishing and your answer coming back may be long, and by then that node and its
+record have settled — a session change along the way does not matter, the record is on disk.
 
-**Debt nodes**: when the close went over this line's debt threshold, the action
-`next --after` returns is `insert_node`: it carries the nodes it put in, each with where its own
-spec landed, plus `note` — **no prompt, and nothing was pinned**, so the line's holding does not
-move. **It can carry more than one node** (when more than one debt is over its line; see "the
-maintenance channel" in `docs/conduct-state.md`). Commit and push as usual, then run
-`sw next --cycle <cycle> --spawn --json` and let the picking rules dispatch them; from there each
-walks like any other node. They go when they are done, and stopping to wait for someone's answer is
-not among their options. **Every node's spec carries a `method: ` line** (which method it names is
-the declaration's to write, and `sw doctor` prints it): when prepare reads it, run that skill
-yourself — batching, dispatching and settling are all in your hands, and the loop is still this
-flow's "Execute" section; the scope is set by the spec that inserted it, so do not widen it to
-everything yourself. Close out as usual when it is done, then go on to the next.
+**Debt nodes**: when the close went over this line's debt threshold, the close-time seam inside
+`settle` puts the debt node **into the graph**, hung in front of the node this close would have
+opened next, so the ordinary ranking takes it first. The `settle` answer names the nodes it put in,
+each with where its own spec landed, plus `note` — **the settle claims nothing and opens nothing**,
+so the line's holding does not move. **It can carry more than one node** (when more than one debt
+is over its line; see "the maintenance channel" in `docs/conduct-state.md`). Commit and push as
+usual, then run `advance --cycle <cycle> --json`: the picking rules pick them out, land each prompt
+and hand them to the opener, and once the sessions take over, each walks like any other node. They
+go when they are done, and stopping to wait for someone's answer is not among their options. **Every
+node's spec carries a `method: ` line** (which method it names is the declaration's to write, and
+`sw doctor` prints it): when prepare reads it, run that skill yourself — batching, dispatching and
+settling are all in your hands, and the loop is still this flow's "Execute" section; the scope is
+set by the spec that inserted it, so do not widen it to everything yourself. Close out as usual when
+it is done, then go on to the next.
 
 When the requirement cannot be met, or the spec contradicts itself: `completed` becomes `failed`;
 when the work is one you chose to stop doing, it becomes `stopped`. Either way the reason goes
@@ -760,8 +775,9 @@ steps run on the main tree**, `-C` points at the worktree, and nothing needs mov
    on the main tree, and the shape of history does not change
 3. the full run runs on the main tree (so it is the merged content that gets verified), and once
    it passes, `git worktree remove .superworker/worktrees/<node short id>` and
-   `git branch -D sw/<node short id>`, then on to handoff → commit the record → push → dispatch.
-   When the worktree and the branch are not cleaned away, `next --after` refuses to settle this
+   `git branch -D sw/<node short id>`, then on to handoff → `settle` → commit the record → push →
+   `advance`.
+   When the worktree and the branch are not cleaned away, `settle` refuses to settle this
    node (it reads the FORK record) — when refused, go back and finish this step before trying
    again
 
@@ -797,17 +813,28 @@ quotes, so a backslash needs one more layer of escaping.
 
 ## The dispatch path
 
-This dispatch step opens a new session through a **spawner script** and **always carries
-`-PromptFile`**; which spawner answers is the tool's to give, not yours to pick — the most
-specific answer wins: `--spawner dsh|zcode|path` (named on the spot) > this line's `spawner`
-policy (`sw cycle policy <cycle> spawner dsh|zcode`, travelling with the line's record) >
-`DSH_CONDUCT_SPAWNER` > the host's own answer (falling back to `dsh` when the probe cannot say).
-For who calls it, and where to look when it breaks, see `docs/conduct-dsh-dispatch.md`.
+The dispatch step opens a new session in two moves: **`advance` lands the material** (each cell's
+prompt and this round's run doc), and **the opener opens the session**. This checkout's opener is a
+**spawner script**, and it **always carries `-PromptFile`**; which spawner answers is the tool's to
+give, not yours to pick — the most specific answer wins: `--spawner dsh|zcode|path` (named on the
+spot) > this line's `spawner` policy (`cycle policy <cycle> spawner dsh|zcode`, travelling with
+the line's record) > `DSH_CONDUCT_SPAWNER` > the host's own answer (falling back to `dsh` when the
+probe cannot say). For who calls it, and where to look when it breaks, see
+`docs/conduct-dsh-dispatch.md`.
+
+The `started` claim lands only once a session is really out — with that claim on disk, this cell is
+never dispatched a second time. **A process with no opener has no seam for opening a session**:
+`advance` still prints the plan, claims the cells and lands their material, and its opening step
+answers one `spawn_error` line instead of opening anything, claiming nothing; `dispatch <cycle>`
+reads the `started` claim alone, and without one it refuses outright — exit code 2, not one byte
+written, naming every prompt path. A rehearsal runs under `DSH_CONDUCT_SPAWN_DRY_RUN=1`: the call
+is made and answered, no session opens, and the `started` claim does not land either — so nothing
+has to be undone before a real dispatch.
 
 When a dispatch fails, the tool drops a failure marker file named per line and does not clear it
 (for where it lands and its shape, see `docs/conduct-dsh-dispatch.md` "the dispatch chain and its
 failure modes") — a human coming in looks at it first (one file per line, so with two lines in
-parallel each looks at its own), and on seeing it runs `next --cycle <id> --spawn` by cycle id to
+parallel each looks at its own), and on seeing it runs `advance --cycle <id>` by cycle id to
 fish it back; a successful spawn clears this line's old marker (the marker exists = this chain is
 broken right now). Before re-sending, the tool blocks double dispatch itself, so on seeing a
 refusal first check whether that node already has a session running — do not force your way in.
@@ -817,7 +844,7 @@ refusal first check whether that node already has a session running — do not f
 The `docs/*.md` referenced here all live in the tool checkout (running `sw version` at the
 checkout root prints it), not under the current project's `docs/`.
 
-- The contract and the design: `docs/conduct-state.md` — the full set of `next`'s actions, the
+- The contract and the design: `docs/conduct-state.md` — the full set of `plan`'s actions, the
   close's two ways in and the invariants are all in it (`holding` is a set of nodes, `parallel`
   is this line's cap)
 - Which plugins are installed, and each one's tools and conventions: `sw doctor` lists what is

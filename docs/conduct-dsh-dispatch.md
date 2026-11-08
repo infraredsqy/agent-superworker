@@ -3,7 +3,7 @@
 > [`../skills/zh/sw-conduct/SKILL.md`](../skills/zh/sw-conduct/SKILL.md) 的「派发通路」一节是给会话看的那一半（谁调它、断了看哪个文件）；
 > 这份放**为什么这么写**、**别怎么写** —— 供排障与搬迁时对照。实现是
 > `tools/conduct/spawn/dsh-spawn.ps1`，**唯一**拼它那份 argv 的地方是 `spawn/conduct_spawn.py`，
-> 管线（`sw next --spawn` 与 `dispatch <cycle>`）经它调用。
+> 管线（`sw advance` 与 `dispatch <cycle>`）经它调用。
 >
 > **`dsh-spawn.ps1` 只开干活会话**：`-PromptFile` 必填，没有 prompt 的调用当场报错退出 —— 整条链上
 > 的每一条会话都是这样开出来的。
@@ -11,8 +11,9 @@
 ## 一、谁开这个会话
 
 `pipeline/writer.py` 的 `spawn_session()` 是管线**唯一**开会的口：它经 `spawn/conduct_spawn.py`
-调 `dsh-spawn.ps1`，把 `dispatch` 动作写下的那份 prompt 发出去。入口是 `sw next --spawn`——干活会话收尾
-时那一条；`--plan` 是只读预览，绝不 spawn。技能自跑的链（`spawn/chain-spawn.py`）自己只是一个 CLI 壳，
+调 `dsh-spawn.ps1`，把那份已经落盘的 prompt 发出去。它的两个调用方是 `dispatch_cells` 的两个入口：
+`sw advance`（认领、落材料、开会话，一条命令）与只开会话的 `sw dispatch <cycle>`。`sw plan` 只读、
+`sw settle` 只记一笔，两个都不 spawn。技能自跑的链（`spawn/chain-spawn.py`）自己只是一个 CLI 壳，
 开会话那一步同样落在这道入口上：会话交接单、标记的写与清都由它带着。**claim 那一条它拿不到**：claim 只认领
 落在 launch 目录里的那份 prompt，而技能自跑的链把 prompt 放在自己那一层（`.superworker/repair/chain/…`）下——
 同一个 prompt 文件被同时交出去两次时没有互斥，这个缺口还开着。

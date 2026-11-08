@@ -12,14 +12,14 @@
 
 本项目仍处于快速迭代期，可能包含不兼容的变更，文件格式亦可能随之调整。
 
-`sw next --spawn` 与 `sw dispatch` 会启动真实的 agent 会话，并产生实际的 token 消耗。
+`sw advance` 与 `sw dispatch` 会启动真实的 agent 会话，并产生实际的 token 消耗。
 
 ## 安装
 
 环境要求：Python 3.10 及以上、git，以及 Windows 平台上的 PowerShell。在本仓库内执行：
 
 ```pwsh
-git clone https://github.com/infraredsqy/agent-pathfinder/
+git clone https://github.com/infraredsqy/agent-superworker/
 cd agent-superworker
 pwsh -File install.ps1 -SkillsFor none    # 不建技能链接；-SkillsFor zcode 才链进 ~/.agents/skills
 ```
@@ -48,10 +48,12 @@ sw dag list                                    # 按 urgency × importance 排�
 
 ```pwsh
 sw cycle start billing --title "billing" --tags coding
-sw next --spawn
+sw advance
 ```
 
-`sw next` 是唯一入口：直接执行将推进至下一个动作；`--plan` 给出同样的结果，但不写入任何内容。
+管线是一个动词一个操作：`sw plan` 只读下一步、一个字节都不写，`sw hold` 认领节点，`sw settle`
+记下一个节点的收尾，`sw dispatch` 只开会话，`sw advance` 是「认领 + 材料 + 会话」三合一的那个词 ——
+宿主或人用它把一条线往前带。
 
 ## 技能
 
@@ -67,7 +69,7 @@ sw next --spawn
 
 ## 与 DSH 的关系
 
-同一套记录层另有一份实现在 DeepSeek Harness 里，就是 `dsh-superworker` 插件：同一个 `.superworker/` 布局、同一套记录字节规则、同一个合并驱动，所以一个项目的记录两家都能读、都能写。词面不共用——DSH 有它自己的一套，本命令只有 `sw --help` 印出来的那套——DSH 有而这里没有的词，等这里的技能需要它时再补。技能树也是分开的：插件把 DSH 那套写进 `~/.dsh/skills`，本仓库的 `skills/` 放的是命令行这一套。
+同一套记录层另有一份实现在 DeepSeek Harness 里，就是 `dsh-superworker` 插件：同一个 `.superworker/` 布局、同一套记录字节规则、同一个合并驱动，所以一个项目的记录两家都能读、都能写。流程那几个词两边一致——`plan` 只读、`hold` 认领、`settle` 收一个节点、`advance` 认领腾出的槽并开会话、`dispatch` 只开会话——各自保留的是「谁来开会话」这一半：本命令交给 spawner 脚本，DSH 由它自己的宿主开。技能树也是分开的：插件把 DSH 那套写进 `~/.dsh/skills`，本仓库的 `skills/` 放的是命令行这一套。
 
 ## 开发
 

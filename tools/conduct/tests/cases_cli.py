@@ -26,55 +26,58 @@ __all__ = ['TestCLIEntryPoints', 'TestRobustness']
 class TestCLIEntryPoints(Base):
     """Tests whose subject is the shipped CLI itself: real processes, no shortcuts."""
 
-    def test_bare_next_writes_and_plan_does_not(self):
-        """`--plan` is read-only over the same decision; a bare `next` is what carries it out."""
+    def test_plan_reads_and_advance_writes(self):
+        """`plan` is read-only over the same decision; `advance` is what carries it out."""
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
 
-        planned = self.cli(sb, 'next', '--plan', '--json')
+        planned = self.cli(sb, 'plan', '--json')
         self.assertEqual(planned.returncode, 0, planned.stderr)
         self.assertEqual(json.loads(planned.stdout)['action'], 'dispatch')
         self.assertIsNone(sb.read_signal('cyc', NODE), 'the plan wrote a signal')
 
-        applied = self.cli(sb, 'next', '--json')
+        receipt, applied = sb.advance_cli()
         self.assertEqual(applied.returncode, 0, applied.stderr)
-        self.assertEqual(json.loads(applied.stdout)['node_id'], NODE)
+        self.assertEqual(receipt['plan']['node_id'], NODE)
         self.assertEqual(sb.current_node(), NODE)
 
-    def test_the_close_flags_reach_the_planner(self):
-        """The closing call's levers are the CLI's `--after` plus the decision flags; driven as a
-        process, since the flags are the subject. A flag the tool does not have is refused before
-        anything is written.
+    def test_settle_takes_no_decision_flags(self):
+        """A settle records one node's end, and the plan decides the line: the old decision flags are
+        refused by the parser, before anything is written.
+
+        Driven as processes, since the flags are the subject: an argument the tool does not have is
+        an argument the caller must not believe it passed.
         """
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
         waiting = finish_node(sb)
 
-        unknown = self.cli(sb, 'next', '--json', '--after', waiting['node_id'], '--verdict', 'x')
-        self.assertNotEqual(unknown.returncode, 0)
-        self.assertIn('unrecognized arguments', unknown.stderr)
-        self.assertEqual(sb.path(), [])                   # the refusal closed nothing
+        for gone in (['--verdict', 'x'], ['--continue'], ['--stop'], ['--note', 'x']):
+            refused = self.cli(sb, 'settle', waiting['node_id'], '--json', *gone)
+            self.assertNotEqual(refused.returncode, 0, f'{gone} was accepted')
+            self.assertIn('unrecognized arguments', refused.stderr)
+            self.assertEqual(sb.path(), [])               # every refusal closed nothing
 
-        stopped = self.cli(sb, 'next', '--json', '--after', waiting['node_id'], '--stop',
-                           '--note', 'wrapping up')
-        self.assertEqual(stopped.returncode, 0, stopped.stderr)
-        self.assertEqual(json.loads(stopped.stdout)['action'], 'stop_pipeline')
+        settled = self.cli(sb, 'settle', waiting['node_id'], '--json')
+        self.assertEqual(settled.returncode, 0, settled.stderr)
+        self.assertEqual(json.loads(settled.stdout)['action'], 'settle')
         self.assertEqual(sb.cycle()['status'], 'inactive')
 
-    def test_cycle_hold_and_cycle_close_are_the_two_state_commands(self):
-        """The CLI surface that pins a node and then closes it: `cycle hold`, `cycle close`.
+    def test_hold_and_cycle_close_are_the_two_state_commands(self):
+        """The CLI surface that claims a node and then closes it: `hold`, `cycle close`.
 
         Driven as processes: these two verbs are what `conduct_pipeline` itself runs, so their spelling
-        is the pipeline's contract with the machine.
+        is the pipeline's contract with the machine. Claiming is its own word -- not a verb of the
+        line group -- because taking work is an act on the node, not on the line.
         """
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.create_cycle('cyc')
         self.assertIsNone(sb.current_node())
 
-        pinned = self.cli(sb, 'cycle', 'hold', 'cyc', NODE)
+        pinned = self.cli(sb, 'hold', NODE, '--cycle', 'cyc')
         self.assertEqual(pinned.returncode, 0, pinned.stderr)
         self.assertEqual(sb.current_node(), NODE)
         self.assertTrue(sb.cycle()['holding'][0]['since'])
@@ -91,7 +94,7 @@ class TestCLIEntryPoints(Base):
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        proc = self.cli(sb, 'next', '--plan')
+        proc = self.cli(sb, 'plan')
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('action: dispatch', proc.stdout)
         self.assertIn(NODE, proc.stdout)
@@ -105,7 +108,7 @@ class TestCLIEntryPoints(Base):
         sb.start_cycle()
         sb._tool('cycle', 'status', 'cyc', 'inactive')
 
-        proc = self.cli(sb, 'next', '--cycle', 'cyc', '--plan')
+        proc = self.cli(sb, 'plan', '--cycle', 'cyc')
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('action: ask_user', proc.stdout)
@@ -121,11 +124,11 @@ class TestCLIEntryPoints(Base):
         sb = self.make(cli=True)
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        WorkerSession(sb, fail_nodes={NODE}).work(sb.next())
-        waiting = sb.next_cli()[0]
+        WorkerSession(sb, fail_nodes={NODE}).work(sb.advance()['plan'])
+        waiting = sb.plan_cli()[0]
         self.assertEqual(waiting['action'], 'wait')
 
-        proc = self.cli(sb, 'next', '--after', waiting['node_id'])
+        proc = self.cli(sb, 'settle', waiting['node_id'])
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('attention: node_shelved', proc.stdout)
@@ -179,13 +182,13 @@ class TestCLIEntryPoints(Base):
         self.assertIn('tags: coding,art', parked.stdout,
                       'a parked line is exactly the one whose scope a human must read')
 
-    def test_next_help_documents_the_surface(self):
-        proc = run_argv([STATE_MANAGE, 'next', '--help'], check=False)
+    def test_plan_help_documents_the_surface(self):
+        proc = run_argv([STATE_MANAGE, 'plan', '--help'], check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        for flag in ('--plan', '--after', '--continue', '--stop', '--node', '--spawn'):
+        for flag in ('--cycle', '--after', '--json', '--project'):
             self.assertIn(flag, proc.stdout)
         for gone in ('--record', '--theme-verdict', '--decision-mode', '--verdict', '--round',
-                     '--stage', '--launch-mode'):
+                     '--stage', '--launch-mode', '--continue', '--stop', '--spawn', '--note'):
             self.assertNotIn(gone, proc.stdout)
         # The contract body at the tail (the one source is `conduct_pipeline.ACTIONS`): it hangs off
         # the moment help is printed, so this reading pins both "help still carries it" and "the
@@ -193,9 +196,9 @@ class TestCLIEntryPoints(Base):
         self.assertIn('the full set of actions', proc.stdout)
         self.assertIn('Invariant:', proc.stdout)
 
-    def test_next_short_help_carries_the_contract_too(self):
+    def test_plan_short_help_carries_the_contract_too(self):
         """`-h` and `--help` are the same action: the short one carries the contract body too."""
-        proc = run_argv([STATE_MANAGE, 'next', '-h'], check=False)
+        proc = run_argv([STATE_MANAGE, 'plan', '-h'], check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('the full set of actions', proc.stdout)
 
@@ -230,7 +233,7 @@ class TestRobustness(Base):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
         sb.start_cycle()
-        sb.next()                                 # dispatch: no commands, nothing to run
+        sb.advance()                                         # claim, material, session (drill)
         sb.write_signal('cyc', NODE, 'completed', 'done', {'deliverable': 'x'})
 
         # Drive the close with the sandbox's own command runner, so the commands under test are the
@@ -246,7 +249,7 @@ class TestRobustness(Base):
         with harness_dag_hook(sb.root), patched(pipeline, '_run', exploding):
             failure['on'], failure['n'] = 2, 0     # `cycle close` landed; the DAG mark blew up
             with self.assertRaises(RuntimeError) as caught:
-                pipeline.apply(sb.root, 'cyc', self_verified=True)
+                pipeline.settle(sb.root, 'cyc', NODE)
         self.assertIn('command failed', str(caught.exception))
         self.assertIn('already ran', str(caught.exception))
         self.assertIn('half-applied', str(caught.exception))

@@ -1,8 +1,12 @@
 """The `cycle` group: one line of work, and every verb that acts on it.
 
 Owns the verbs of `sw cycle` -- create / start / rename / status / policy / list / current /
-show / hold / close / retry -- plus the vocabulary a cycle carries: VALID_TAGS, `_parse_cycle_tags`
-and the policy table (`POLICY_*`, and `cycle_policy` as the one reading of it).
+show / close / retry -- plus the vocabulary a cycle carries: VALID_TAGS, `_parse_cycle_tags` and the
+policy table (`POLICY_*`, and `cycle_policy` as the one reading of it).
+
+Claiming is **not** a verb of this group: `hold` is a word of its own (`plancmd.py`), because
+claiming is how work is taken, not a property of a line. What lives here is the write it lands
+(`claim_nodes`), under this package's one lock.
 
 A line's policies are its own thing: three of them (`when_shelved` / `parallel` / `spawner`) belong
 to the line and live nowhere else, and the rest are the knobs the installed plugins declare, which
@@ -252,7 +256,7 @@ def cmd_cycle_create(cycle_id: str, title: str | None,
                      force: bool = False, tags=None) -> None:
     """Create a cycle -- and refuse while another one is still active.
 
-    Two active cycles is not a harmless extra: the bare `next` that everything else relies on can no
+    Two active cycles is not a harmless extra: the bare `advance` everything else relies on can no
     longer tell which cycle it is about, so it degrades into `ask_user` ("continue which one?"),
     and an unattended run has nobody to answer. One cycle at a time is the invariant; `--force` is
     the human saying they know that and want the second one anyway.
@@ -261,7 +265,7 @@ def cmd_cycle_create(cycle_id: str, title: str | None,
     nowhere else) because every later pick reads it back -- the set is a property of the LINE, not of
     the step that happened to open it. Empty means the whole graph is in range.
 
-    The cycle starts with nothing in hand: `cycle hold` is what claims the first node.
+    The cycle starts with nothing in hand: `hold` is what claims the first node.
     """
     # The command-line string goes through the one parsing door first: `cycle start` splits it
     # before calling in here, while a human typing `cycle create --tags art` arrives with the string
@@ -283,7 +287,7 @@ def cmd_cycle_create(cycle_id: str, title: str | None,
                   file=sys.stderr)
             sys.exit(1)
         if active and force:
-            print(f'Note: --force given; {active} stay active, so a bare `next` will have to be told '
+            print(f'Note: --force given; {active} stay active, so a bare `advance` will have to be told '
                   f'which cycle (--cycle) from now on.', file=sys.stderr)
 
         now = _now()
@@ -292,7 +296,7 @@ def cmd_cycle_create(cycle_id: str, title: str | None,
         entry = {
             'id': cycle_id, 'title': title,
             'status': 'active',
-            # Nothing is in hand until `cycle hold` claims a node; `path` is the steps walked.
+            # Nothing is in hand until `hold` claims a node; `path` is the steps walked.
             'holding': [], 'path': [],
             'created_at': now, 'updated_at': now,
         }
@@ -340,7 +344,7 @@ def cmd_cycle_start(cycle_id: str, title: str | None,
     the default (one slot at a time).
 
     Refuses while another cycle is still active, unless `--force`. The alternative -- two active
-    cycles -- makes the next bare `next` an `ask_user`, which an unattended run cannot answer, and
+    cycles -- makes the next bare `advance` an `ask_user`, which an unattended run cannot answer, and
     the cycle it opens would very likely pick the node the old one was working on.
 
     The whole body runs under the ledger lock: the pick must not read the DAG while another
@@ -467,38 +471,55 @@ def cmd_cycle_show(cycle_id: str, node_id: str) -> None:
 
 # ── the group's writes ───────────────────────────────────────────────────────
 
-def cmd_cycle_hold(cycle_id: str, node_id: str) -> None:
-    """Pin the cycle on a node. This is how work is claimed: another cycle's pick skips it.
+def claim_nodes(cycle_id: str, node_ids: list) -> None:
+    """Claim one or more nodes for a line. This is how work is taken: another line's pick skips it.
 
     The claim is exclusive ACROSS cycles, and the account is where that is enforced: two lines can
     reach for the same node in the overlap window between their closes and opens, and without this
-    check both pins would land -- two sessions would then boot onto one node, and no close would
-    ever be able to settle it (`cycle close` reads ONE holder). The lock makes the scan-then-write
-    one atomic step.
+    check both pins would land -- two sessions would then boot onto one node, and no settle would
+    ever be able to close it. The lock makes the scan-then-write one atomic step.
 
-    A line can hold several nodes at once (the `parallel` policy), so pinning one more onto a line
-    that already has nodes is not an error -- that write is "open one more slot"; re-pinning the
+    **Several ids are one write, all or none.** Every id is judged against the same account before a
+    single byte moves: an id another line holds refuses the whole batch, and nothing is claimed. The
+    batch is not a new operation -- it is this one, N times, under one lock.
+
+    A line can hold several nodes at once (the `parallel` policy), so claiming one more onto a line
+    that already has nodes is not an error -- that write is "open one more slot"; re-claiming the
     same id is allowed (restart semantics).
     """
+    nodes = [n for n in node_ids if n]
+    if not nodes:
+        print('Error: `hold` needs at least one node id.', file=sys.stderr)
+        sys.exit(2)
     with _ledger_lock():
         state = _read_state()
         cycle = _find_cycle(state, cycle_id)
-        holder = next((c for c in state['cycles']
-                       if c['id'] != cycle_id and node_id in _holding_ids(c)), None)
-        if holder is not None:
-            print(f'Error: node "{node_id}" is already pinned by cycle "{holder["id"]}" '
-                  f'(status {holder.get("status")}).'
-                  f' -- one node belongs to one cycle at a time, whatever that line\'s status. '
-                  f'Close it there first, or pick another node.', file=sys.stderr)
-            sys.exit(1)
+        for node_id in nodes:
+            holder = next((c for c in state['cycles']
+                           if c['id'] != cycle_id and node_id in _holding_ids(c)), None)
+            if holder is not None:
+                print(f'Error: node "{node_id}" is already pinned by cycle "{holder["id"]}" '
+                      f'(status {holder.get("status")}).'
+                      f' -- one node belongs to one cycle at a time, whatever that line\'s status. '
+                      f'Close it there first, or pick another node. Nothing was claimed.',
+                      file=sys.stderr)
+                sys.exit(1)
         now = _now()
         holding = _holding_of(cycle)
-        if not any(item['id'] == node_id for item in holding):
-            holding.append({'id': node_id, 'since': now})
+        have = {item['id'] for item in holding}
+        for node_id in nodes:
+            if node_id not in have:
+                holding.append({'id': node_id, 'since': now})
+                have.add(node_id)
         _set_holding(cycle, holding)
         cycle['updated_at'] = now
         _write_state(state)
-    print(f'CURRENT_NODE: {cycle_id} → {node_id}')
+    print(f'CURRENT_NODE: {cycle_id} → {", ".join(nodes)}')
+
+
+def cmd_cycle_hold(cycle_id: str, node_id: str) -> None:
+    """One node's claim, kept for the callers that name exactly one (the `cycle` group's old verb)."""
+    claim_nodes(cycle_id, [node_id])
 
 
 def cmd_cycle_retry(cycle_id: str, node_id: str, summary: str | None,
@@ -510,7 +531,7 @@ def cmd_cycle_retry(cycle_id: str, node_id: str, summary: str | None,
 
     By default the note is rewritten as `pending` (the mark a retry leaves behind, and readers wait
     on it as on a red light). `--drop` leaves no note at all: that is the step a retry really starts
-    from -- as long as one `pending` note is there, `next` always answers `wait` and not a byte
+    from -- as long as one `pending` note is there, `plan` always answers `wait` and not a byte
     moves (this has stalled a line).
     """
     if drop:

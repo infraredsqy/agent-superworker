@@ -59,17 +59,18 @@ class CliCases:
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', self.DEBT.line, self.DEBT.at)
-        sb.next()                                  # the real `next` CLI pins NODE and dispatches it
+        sb.advance()['plan']                                  # the real `next` CLI pins NODE and dispatches it
         self.DEBT.report(sb, NODE, self.DEBT.over, via_handoff=True)
 
-        action, proc = sb.next_cli('--after', NODE)
+        action, proc = sb.settle_cli(NODE)
 
         # 1. the close inserts: the node, its spec, and the two edges, through the real processes
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         nodes = sb.dag()['nodes']
         self.assertEqual(len(nodes), 3, f'the debt node was not inserted: {action}')
-        made = action['node_id']
+        made = action['inserted_node']
         self.assertEqual(nodes[made]['dependencies'], [NODE])
         self.assertEqual(nodes[NODE2]['dependencies'], [made])
         self.assertTrue((sb.root / '.superworker' / 'nodes' / made / 'spec.md').is_file())
@@ -78,18 +79,18 @@ class CliCases:
         self.assertFalse((sb.root / '.superworker' / 'meta' / 'launch' / 'cyc' / made).exists())
         self.assertNotIn('prompt', action)
         # 3. the NEXT call is what dispatches it -- the pick decides, not the insertion
-        dispatched, proc = sb.next_cli()
+        dispatched, proc = sb.advance_cli()
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(dispatched['action'], 'dispatch')
-        self.assertEqual(dispatched['node_id'], made)
+        self.assertEqual(dispatched['plan']['action'], 'dispatch')
+        self.assertEqual(dispatched['plan']['node_id'], made)
         self.assertEqual(sb.current_node(), made)
         # Dispatching stops at the prompt file: that is what `dispatch <cycle>` reads, and this case
         # asserts exactly "the file is there, holding the debt node's invocation line". **No
         # `dispatch` call and no `--spawn`** -- that path works and would really open a session (the
         # dispatch-semantics layer is guarded by `TestDispatchVerb`'s fake spawner).
-        self.assertTrue(Path(dispatched['prompt']).is_file())
-        self.assertEqual(Path(dispatched['prompt']).parent.name, made)
-        self.assertIn(made, Path(dispatched['prompt']).read_text(encoding='utf-8'))
+        self.assertTrue(Path(dispatched['plan']['prompt']).is_file())
+        self.assertEqual(Path(dispatched['plan']['prompt']).parent.name, made)
+        self.assertIn(made, Path(dispatched['plan']['prompt']).read_text(encoding='utf-8'))
 
     def test_even_a_spawn_asked_for_opens_nothing(self):
         """`next --after <node> --spawn` still opens no session when the close inserted a node.
@@ -103,13 +104,14 @@ class CliCases:
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', self.DEBT.line, self.DEBT.at)
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
-        action, proc = sb.spawn_next('--after', NODE)
+        action, proc = sb.settle_cli(NODE)
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertNotIn('spawned', action, 'the closing call opened a session for an insertion')
         self.assertEqual(len(sb.dag()['nodes']), 3)
         self.assertEqual(sb.holding_ids(), [])
@@ -157,7 +159,8 @@ class DriveCases:
         self.assertEqual(sb.path_nodes(), [NODE, debt_node, NODE2],
                          'the debt node runs between the node it was inserted after and '
                          'the node that was already picked')
-        self.assertEqual(terminal['action'], 'stop_pipeline')
+        self.assertEqual(terminal['action'], 'settle')
+        self.assertTrue(terminal['parked'], 'the last round was not parked')
         self.assertEqual(sb.dag()['nodes'][debt_node]['status'], 'completed')
         self.assertEqual(sb.dag()['nodes'][NODE2]['status'], 'completed')
         # the inserted node is an ordinary node: it is dispatched itself and delivers its own note
@@ -178,12 +181,13 @@ class DriveCases:
         """The closing call hands back an insertion and no commands the caller could run again: the
         graph edit is the tool's business."""
         sb = coding_line(self, self.DEBT, dispatch=False)
-        sb.next()
+        sb.advance()['plan']
         self.DEBT.report(sb, NODE, self.DEBT.over)
 
-        action = sb.close_round(NODE)
+        action = sb.settle(NODE)
 
-        self.assertEqual(action['action'], 'insert_node')
+        self.assertEqual(action['action'], 'settle')
+        self.assertTrue(action.get('insertions'), action)
         self.assertFalse(action.get('commands'), 'the caller must have nothing left to run')
         # the tool's own two intermediates do not leak out
         self.assertNotIn('add_command', action)
@@ -218,7 +222,7 @@ class TestTicketDrive(DriveCases, Base):
         sb.add_node(NODE2, 'Write code B', mode='auto', tags=['coding'], deps=[NODE])
         sb.start_cycle(tags=['coding'])
         sb.set_policy('cyc', TICKET.line, TICKET.at)
-        sb.next()
+        sb.advance()['plan']
         sb.handoff('cyc', NODE, 'completed', 'done',
                    {'deliverable': 'x',
                     'reading': {TICKET.reading: TICKET.over, POOL.reading: 3}})
@@ -226,9 +230,9 @@ class TestTicketDrive(DriveCases, Base):
         ticket = sb.read_signal('cyc', NODE)
         self.assertEqual(ticket['outputs']['reading'],
                          {TICKET.reading: TICKET.over, POOL.reading: 3})
-        inserted = sb.close_round(NODE)
+        inserted = sb.settle(NODE)
         self.assertEqual(len(sb.dag()['nodes']), 3)
-        made = inserted['node_id']
+        made = inserted['inserted_node']
         # only the metric that crossed comes in; the other key on the note is read by nobody
         spec = (sb.root / '.superworker' / 'nodes' / made / 'spec.md').read_text(encoding='utf-8')
         self.assertIn(TICKET.reading, spec)

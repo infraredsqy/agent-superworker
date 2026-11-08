@@ -1,21 +1,20 @@
-"""`state-manage.py dispatch <cycle>`: start the session for the node the cycle is holding.
+"""`state-manage.py dispatch <cycle>`: open the sessions of the cells a line holds.
 
-Why the verb exists (and what it must NOT do): the closing call
-(`next --after <node> --json`) settles a node, picks the next one and writes its prompt, but the
-worker that closed its node still has to commit and push its own work -- and the next session boots
-in the SAME worktree and pulls on its first line. So starting it is a separate command, run after the
-push:
+Why the verb exists (and what it must NOT do): `sw settle <node>` records one node's end and
+`sw advance` claims the free slots, lands each cell's material and opens it -- but the worker that
+settled its node still has to commit and push its own work, and the next session boots in the SAME
+worktree and pulls on its first line. So starting a session is a verb of its own, run after the push:
 
-    next --after <node> --json     settle it, write .superworker/meta/launch/<cycle>/<node>/prompt.txt
+    sw settle <node> --json        record the node's end
     git commit … && git push       the worker's own work
-    dispatch <cycle>               start that prompt's session
+    dispatch <cycle>               open the sessions of the cells in hand
 
 The cases here pin the whole contract of that verb: it dispatches, it refuses (five shapes, each with
 a line on stderr), it resolves `--project`, and it touches nothing but the session it starts.
 
 `DSH_CONDUCT_SPAWN_DRY_RUN=1` is held by the harness around every dispatch (`Sandbox.dispatch`): the
 spawn call is made and reported, and no session (and no network) is involved. The drill switch is
-honoured inside `spawn_session`, which is the seam the closing call's spawn uses too.
+honoured inside `spawn_session`, which is the seam every spawn call goes through.
 """
 
 from __future__ import annotations
@@ -48,11 +47,11 @@ class TestDispatchVerb(Base):
     """`dispatch <cycle>` -- one call, and the only thing it does is start that session."""
 
     def pinned(self, cli=False):
-        """A cycle holding NODE, with the prompt file already on disk (what `next` writes)."""
+        """A cycle holding NODE, with the prompt file already on disk (what `advance` writes)."""
         sb = self.ready_sandbox(cli=cli)
-        action = sb.next()
-        self.assertEqual('dispatch', action['action'])
-        return sb, action
+        receipt = sb.advance()
+        self.assertEqual('dispatch', receipt['plan']['action'])
+        return sb, receipt['plan']
 
     # ── it dispatches ────────────────────────────────────────────────────────
     def test_it_starts_the_session_for_the_node_the_cycle_holds(self):
@@ -75,14 +74,12 @@ class TestDispatchVerb(Base):
 
         self.assertEqual(0, proc.returncode, proc.stderr)
         payload = json.loads(proc.stdout)
-        self.assertEqual({'action', 'cycle', 'node_id', 'nodes', 'prompt', 'spawned'},
-                         set(payload))
+        self.assertEqual({'action', 'cycle', 'nodes', 'spawned', 'skipped'}, set(payload))
         self.assertEqual('dispatch', payload['action'])
         self.assertEqual('cyc', payload['cycle'])
-        self.assertEqual(NODE, payload['node_id'])
-        self.assertTrue(os.path.samefile(payload['prompt'], action['prompt']),
-                        'the json must name the prompt the dispatch read')
-        self.assertTrue(same_path(action['prompt'], payload['spawned']))
+        self.assertEqual([NODE], payload['nodes'])
+        self.assertTrue(payload['spawned'])
+        self.assertTrue(same_path(action['prompt'], payload['spawned'][0]))
 
     def test_it_touches_nothing_but_the_spawn(self):
         """It reads the ledger to find the node, and starts a session. No status, no path, no
@@ -101,22 +98,22 @@ class TestDispatchVerb(Base):
     def test_a_cycle_with_no_node_in_hand_refuses(self):
         sb = self.make()
         sb.add_node(NODE, 'UI design', mode='auto')
-        sb.create_cycle()                                  # created, but nothing is pinned
+        sb.create_cycle()                                  # created, but nothing is claimed
 
         proc = sb.dispatch(check=False)
 
         self.assertNotEqual(0, proc.returncode)
         self.assertIn('holding no node', proc.stderr)
-        self.assertIn('next --cycle cyc --json', proc.stderr)   # names the call that fixes it
+        self.assertIn('sw advance --cycle cyc --json', proc.stderr)   # names the call that fixes it
 
     def test_a_missing_prompt_names_the_path_and_the_call_that_writes_it(self):
-        sb = self.ready_sandbox()                          # pinned, but `next` never ran
+        sb = self.ready_sandbox()                          # claimed, but `advance` never ran
         proc = sb.dispatch(check=False)
 
         self.assertNotEqual(0, proc.returncode)
-        self.assertIn('prompt.txt', proc.stderr)
-        self.assertIn(NODE, proc.stderr)
-        self.assertIn('next --after %s --json' % NODE, proc.stderr)
+        self.assertIn('no prompt file', proc.stderr)
+        self.assertIn(NODE[:8], proc.stderr)
+        self.assertIn('sw advance --cycle cyc --json', proc.stderr)
 
     def test_a_cycle_out_of_service_refuses(self):
         sb, action = self.pinned()
@@ -176,11 +173,11 @@ class TestDispatchVerb(Base):
         self.assertIn("no cycle named 'cyc'", other.stderr)
 
     # ── the line policy names a spawner ──────────────────────────────────────
-    # `cycle policy <cycle> spawner dsh|zcode` is a decision recorded on the line: dispatch reads
-    # it, over this machine's environment variable and the host's own guess, yielding to a one-off
-    # `--spawner`. The machine-independent assertions lean on "who alone can produce this name":
-    # with the environment saying zcode, a `dsh` in argv can only come from the line policy, and a
-    # path can only come from the flag.
+    # `cycle policy <cycle> spawner dsh|zcode` is a decision recorded on the line: the spawn call
+    # reads it, over this machine's environment variable and the host's own guess, yielding to a
+    # one-off `--spawner`. The machine-independent assertions lean on "who alone can produce this
+    # name": with the environment saying zcode, a `dsh` in argv can only come from the line policy,
+    # and a path can only come from the flag.
 
     def test_a_line_policy_beats_the_machine_setting(self):
         for cli in (False, True):
@@ -189,10 +186,10 @@ class TestDispatchVerb(Base):
                 sb.set_policy('cyc', 'spawner', 'dsh', cli=cli)
 
                 with mock.patch.dict(os.environ, {'DSH_CONDUCT_SPAWNER': 'zcode'}):
-                    proc = sb.dispatch(cli=cli)
+                    receipt, proc = sb.advance_cli()
 
                 self.assertEqual(0, proc.returncode, proc.stderr)
-                self.assertIn('dsh-spawn.ps1', proc.stdout,
+                self.assertIn('dsh-spawn.ps1', receipt['spawned'][0],
                               'the line policy must name the spawner the argv uses')
 
     def test_without_a_policy_the_machine_setting_answers(self):
@@ -201,10 +198,10 @@ class TestDispatchVerb(Base):
                 sb, _action = self.pinned(cli=cli)
 
                 with mock.patch.dict(os.environ, {'DSH_CONDUCT_SPAWNER': 'zcode'}):
-                    proc = sb.dispatch(cli=cli)
+                    receipt, proc = sb.advance_cli()
 
                 self.assertEqual(0, proc.returncode, proc.stderr)
-                self.assertIn('zcode-spawn.ps1', proc.stdout,
+                self.assertIn('zcode-spawn.ps1', receipt['spawned'][0],
                               'a line that named no policy changes nothing')
 
     def test_off_returns_the_answer_to_the_machine_setting(self):
@@ -213,10 +210,10 @@ class TestDispatchVerb(Base):
         sb.set_policy('cyc', 'spawner', 'off')
 
         with mock.patch.dict(os.environ, {'DSH_CONDUCT_SPAWNER': 'zcode'}):
-            proc = sb.dispatch()
+            receipt, proc = sb.advance_cli()
 
         self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertIn('zcode-spawn.ps1', proc.stdout,
+        self.assertIn('zcode-spawn.ps1', receipt['spawned'][0],
                       '`off` must clear the policy, not park it at its last word')
 
     def test_a_per_call_flag_beats_the_line_policy(self):
@@ -225,7 +222,7 @@ class TestDispatchVerb(Base):
         flag_spawner = sb.root / 'fake-spawner.ps1'
 
         with mock.patch.dict(os.environ, {'DSH_CONDUCT_SPAWNER': 'zcode'}):
-            proc = run_state_manage(sb.root, 'dispatch', 'cyc', '--spawner', str(flag_spawner))
+            proc = sb.dispatch(spawner=flag_spawner)
 
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertIn('fake-spawner.ps1', proc.stdout,
@@ -240,18 +237,17 @@ class TestDispatchVerb(Base):
         self.assertIn("'dsh', 'zcode'", refused.stderr,
                       'the refusal names the words the policy takes')
 
-    def test_the_closing_call_names_the_line_policy_spawner_too(self):
-        """The closing call's own spawn is the same spawn call as `dispatch`: the line policy
-        reaches it too."""
+    def test_the_advance_call_names_the_line_policy_spawner_too(self):
+        """`advance`'s own spawn is the same spawn call as `dispatch`: the line policy reaches it
+        too."""
         sb = self.ready_sandbox()
         sb.set_policy('cyc', 'spawner', 'dsh')
-        sb.next()                                # pin the node and write its prompt
 
         with mock.patch.dict(os.environ, {'DSH_CONDUCT_SPAWNER': 'zcode'}):
-            _action, proc = sb.spawn_next()
+            receipt, proc = sb.advance_cli()
 
         self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertIn('dsh-spawn.ps1', proc.stdout,
+        self.assertIn('dsh-spawn.ps1', receipt['spawned'][0],
                       'the machine setting said zcode; only the line policy can answer dsh')
 
 

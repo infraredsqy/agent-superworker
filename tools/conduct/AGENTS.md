@@ -40,14 +40,14 @@
 - One temp project per case, run in parallel across the CPU cores — these cases spend nearly all
   their time waiting on subprocesses.
 - **Call in-process whenever you can**: load `conduct_pipeline.py` by path with importlib and call
-  `apply()` / `record()` directly; only a case whose subject is the CLI itself really invokes
-  `state-manage.py`; the DAG and the `state.json` skeleton are built by writing files.
+  `plan()` / `settle()` / `advance()` directly; only a case whose subject is the CLI itself really
+  invokes `state-manage.py`; the DAG and the `state.json` skeleton are built by writing files.
 - The red line is judged on a single case (≤5 s); the full suite's measured time is still reported
   as usual.
 
 ## The dispatch path is live ammunition
 
-- This tool tree's `--spawn` / `dispatch` goes through `conduct_spawn.py` → a spawner script
+- This tool tree's `advance` / `dispatch` goes through `conduct_spawn.py` → a spawner script
   (`dsh-spawn.ps1` on DSH, `zcode-spawn.ps1` on ZCode) and opens **real sessions** that burn
   tokens; the ZCode one also writes rows into the user's installed
   `~/.zcode/v2/tasks-index.sqlite`. Tests, debugging and sample runs never go through it.
@@ -56,8 +56,8 @@
   (precedent: `TestOneSpawner` in `tests/cases_cli_entries.py`).
 - A mechanism change is always verified in a **one-shot sandbox project**: copy the graph's records
   into a git repo under temp (or build a fake graph outright), driven by a fake spawner; on a real
-  project only read-only queries are allowed (`cycle list` / `cycle current` / `--plan`) — no
-  opening a cycle, no `dispatch` / `--spawn`.
-- New tests must not splice `--spawn` into a command string; temp projects use a `tempfile`
+  project only read-only queries are allowed (`cycle list` / `cycle current` / `plan`) — no
+  opening a cycle, no `dispatch` / `advance`.
+- New tests must not splice the spawn switch into a command string; temp projects use a `tempfile`
   sandbox, cleaned up afterwards. On the ZCode side, point `ZCODE_DATA_BASE_DIR` at a temp
   directory (precedent: `tests/cases_zcode.py`).

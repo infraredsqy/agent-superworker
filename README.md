@@ -16,14 +16,14 @@ Everything the pipeline knows lives in `.superworker/`.
 
 Early, and moving fast. Expect breaking changes, and expect file formats to shift under you.
 
-`sw next --spawn` and `sw dispatch` start real agent sessions that spend real tokens.
+`sw advance` and `sw dispatch` start real agent sessions that spend real tokens.
 
 ## Install
 
 Needs Python 3.10+, git, and PowerShell on Windows. From this checkout:
 
 ```pwsh
-git clone https://github.com/infraredsqy/agent-pathfinder/
+git clone https://github.com/infraredsqy/agent-superworker/
 cd agent-superworker
 pwsh -File install.ps1 -SkillsFor none    # no skill links; -SkillsFor zcode links them
 ```
@@ -60,11 +60,13 @@ Then start a line and let it open the first session:
 
 ```pwsh
 sw cycle start billing --title "billing" --tags coding
-sw next --spawn
+sw advance
 ```
 
-`sw next` is the one entry point: bare, it drives the line to its next action; `--plan` shows the
-same answer without writing anything.
+The pipeline is one verb per operation: `sw plan` reads the next step and writes nothing, `sw hold`
+claims a node, `sw settle` records one node's end, `sw dispatch` opens the sessions of the cells a
+line holds, and `sw advance` is claim, material and session in one word — the one a host or a
+person runs to move a line on.
 
 ## Skills
 
@@ -85,10 +87,12 @@ names no skill from another plugin — it says "run `sw doctor`" instead.
 
 Another implementation of the same record layer ships with DeepSeek Harness as the
 `dsh-superworker` plugin: one `.superworker/` layout, one byte rule for the records, one merge
-driver, so a project's records can be read and written from either side. The words are not shared —
-DSH carries its own set, this command carries the one `sw --help` prints — and a word DSH has and
-this command does not is added here when a skill here needs it. The skill trees are separate too:
-the plugin writes DSH's into `~/.dsh/skills`, and `skills/` here holds the command-line ones.
+driver, so a project's records can be read and written from either side. The flow words agree on
+both sides — `plan` reads, `hold` claims, `settle` records one node's end, `advance` claims the
+free slots and opens the sessions, `dispatch` only opens — while each side keeps its own route for
+what opens a session (this command hands that to a spawner script; DSH's host opens it itself). The
+skill trees are separate too: the plugin writes DSH's into `~/.dsh/skills`, and `skills/` here holds
+the command-line ones.
 
 ## Development
 

@@ -350,7 +350,7 @@ it, then collect the commits:
      see this node
    - **One commit for what "do it now" produced** (`docs:` / `style:` / `chore:`, picked by what
      changed)
-3. **Verify**: `sw next --plan` (with `--cycle <line>` when several lines are in service) — the
+3. **Verify**: `sw plan` (with `--cycle <line>` when several lines are in service) — the
    answer has to point at a dispatchable node; when it does not, an empty ready set means going
    back to grow the graph, and a tag block or a gate is read out as its `reason` says — **never
    hand over a line that cannot run**

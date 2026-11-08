@@ -62,7 +62,7 @@ class TestInstructionScope(Base):
         self.assertEqual([i['text'] for i in sb.instruct_visible_cli()], ['a constraint for this node'])
 
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        sb.close_round(NODE)
+        sb.settle(NODE)
         self.assertEqual(sb.instruct_visible_cli(), [],
                          'a node entry outlived the node it was recorded in')
 
@@ -77,7 +77,7 @@ class TestInstructionScope(Base):
         sb = self.with_cycle()
         sb.instruct('a constraint for this node', scope='node')
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
         self.assertEqual(sb.instruct_visible_cli(), [])
         self.assertEqual(sb.instruct_visible_cli(node=NODE), [])
@@ -122,12 +122,15 @@ class TestInstructionScope(Base):
         self.assertEqual([i['text'] for i in sb.instruct_list()], ['only the other node has this constraint'])
 
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        action = sb.close_round(NODE, decision='continue')
+        action = sb.settle(NODE)
 
-        self.assertNotEqual(action['action'], 'stop_pipeline',
-                            "another node's rhythm instruction capped this close")
-        self.assertEqual(action['action'], 'dispatch')
-        self.assertEqual(action['node_id'], NODE2)
+        self.assertEqual(action['action'], 'settle', action)
+        self.assertFalse(action['parked'],
+                         "another node's rhythm instruction capped this close")
+        # The line carries on: the next advance claims the node the ranking picks, and this settle
+        # pinned nobody.
+        self.assertIsNone(sb.current_node())
+        self.assertEqual([cell['node_id'] for cell in sb.advance()['plan']['nodes']], [NODE2])
 
     def test_the_place_is_the_node_in_hand_even_within_one_line(self):
         """When one line holds two nodes at once (`parallel`), an entry follows the node in hand,
@@ -137,7 +140,7 @@ class TestInstructionScope(Base):
         sb.add_node(NODE2, 'another line', mode='auto')
         sb.start_cycle()
         sb.set_policy('cyc', 'parallel', 2)
-        sb.set_current_node(NODE2)
+        sb.hold(NODE2)
         sb.instruct('only the other node has this constraint', scope='node', node=NODE2)
 
         self.assertEqual(sb.instruct_visible_cli(node=NODE), [])
@@ -175,8 +178,12 @@ class TestInstructionScope(Base):
         self.assertEqual([i['text'] for i in sb.instruct_visible_cli()], ['only the first node has this constraint'])
 
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
+        # The settle claims nothing, so the place moves on with the next advance -- and the entry
+        # recorded in the first node is not read once the line stands on the second.
+        self.assertIsNone(sb.current_node())
+        sb.advance()
         self.assertEqual(sb.current_node(), NODE2)
         self.assertEqual(sb.instruct_visible_cli(), [],
                          'the entry followed the line into a node it was never recorded in')
@@ -353,9 +360,9 @@ class TestInstructionAuthority(Base):
     def test_the_closing_call_leaves_the_account_alone(self):
         sb, ins_id = self.seeded()
         before = sb.read_instructions()
-        sb.next()
+        sb.advance()['plan']
         sb.write_signal('cyc', NODE, 'completed', 'done')
-        sb.close_round(NODE)
+        sb.settle(NODE)
 
         self.assertEqual(sb.read_instructions(), before)
 

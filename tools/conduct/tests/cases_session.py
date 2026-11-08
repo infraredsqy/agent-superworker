@@ -124,7 +124,7 @@ class TestTheRunNoteAtDispatch(Base):
     def pinned(self):
         """A cycle holding NODE, with its prompt already written (what `next` does)."""
         sb = self.ready_sandbox(cli=True)
-        action = sb.next()
+        action = sb.advance()['plan']
         self.assertEqual('dispatch', action['action'])
         return sb, action
 

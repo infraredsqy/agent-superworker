@@ -3,9 +3,9 @@
 
 What the pipeline is
 --------------------
-A cycle is one line of work. It picks ONE DAG node, hands it to a session, and when that session
-reports back it records the step and picks the next node -- or stops. One node at a time, one cycle
-at a time (a second active cycle is legal, but then a bare `next` has to be told which one).
+A cycle is one line of work. It picks ONE DAG node at a time, hands it to a session, and when that
+session reports back it records the step and picks the next node -- or stops. One node at a time, one
+cycle at a time (a second active cycle is legal, but then a bare `advance` has to be told which one).
 
     cycle -> node -> (the session's own work on it) -> next node or stop
 
@@ -23,10 +23,10 @@ tool that both performed an action and handed the agent the commands to perform 
 pointer twice.)
 
 **The DAG's node status is the single source of truth for "did it work".** A node reports by writing
-a signal; a terminal signal on disk means its work is finished and only its close is left. The
-worker's own closing call -- `state-manage.py next --after <node_id> --json` -- reads the outcome
-off that signal, records the path step, marks the node, and answers what comes next. Starting the
-next session is a SEPARATE command (`dispatch <cycle>`, or the one-shot `next --spawn`), because the
+a signal; a terminal signal on disk means its work is finished and only its settle is left. The
+worker's own closing call -- `settle <node>` -- reads the outcome off that signal, records the path
+step and marks the node; it pins nothing and opens nothing. The next round is a separate word,
+`advance` (claim the free slots, land each cell's material, open one session per cell), because the
 worker still has to commit and push before the next session boots in the same worktree.
 
 Invariants this module owns, each of which cost a bug to learn
@@ -35,33 +35,33 @@ Invariants this module owns, each of which cost a bug to learn
      another cycle's pick skips a node some line is holding.
   2. A terminal signal is the whole of "this node is done"; a `running` signal is never a green
      light. `cycle retry` is what preps a retry.
-  3. A node whose work is finished but whose close has not run is a *stable* state: `next` answers
-     `wait` with the closing command, as many times as it is asked, and writes nothing.
-  4. Closing a node is not the same as finishing the cycle: the close records the step and marks the
-     DAG node, and it is the worker's own `next --after` that performs it.
+  3. A node whose work is finished but which has not been settled is a *stable* state: `plan`
+     answers `wait` with the closing command, as many times as it is asked, and writes nothing.
+  4. Settling a node is not the same as finishing the cycle: the settle records the step and marks
+     the DAG node, and it is the worker's own `settle <node>` that performs it.
   5. The node a cycle is about is recorded when the cycle is pointed at it, not when it reports.
      That is what makes a mid-run edit of the DAG harmless.
   6. `commands` are run here and stripped from the returned action.
   7. apply() refuses to report success unless something really moved.
   8. Every child process is bounded (CMD_TIMEOUT); a hung child must fail loudly, not hang a night.
   9. Instructions may only TIGHTEN the stop rule, never loosen it: a node whose mode is `checkpoint`
-     always stops the run at the end of its node, whatever the instructions say -- and whatever the
-     closing call asked for. `auto` and `manual` may carry on: a manual node's whole life is the
-     conversation with the user, and its completion is the user's release, so there is no second
-     gate at the close. The node's own mode is the one place that question is answered; there is no
-     line-level mode above it.
+     always stops the run at the end of its node, whatever the instructions say -- and there is no
+     caller flag that could contradict it. `auto` and `manual` may carry on: a manual node's whole
+     life is the conversation with the user, and its completion is the user's release, so there is
+     no second gate at the close. The node's own mode is the one place that question is answered;
+     there is no line-level mode above it.
  10. The node's outcome is coarse on purpose: `completed` is the worker saying it delivered and
      `failed`/`stopped` is the worker saying it did not. Deviation is normal; only a *total* failure
      is worth stopping a night for.
 
 Usage:
-    python conduct_pipeline.py plan   [--cycle ID] [--project DIR]
-    python conduct_pipeline.py apply  [--cycle ID] [--project DIR] [--after NODE_ID]
-    python conduct_pipeline.py record [--cycle ID] [--project DIR]
+    python conduct_pipeline.py plan    [--cycle ID] [--project DIR] [--after NODE_ID]
+    python conduct_pipeline.py settle  [--cycle ID] [--project DIR] --node NODE_ID
+    python conduct_pipeline.py advance [--cycle ID] [--project DIR]
 
 Those three are this module's own entry, for drills and tests. The pipeline's one entry point is
-`sw next`: `--plan` runs `plan`, `--after <node>` runs `apply`, neither runs `record`, and
-`state-manage.py next --help` prints the action vocabulary from `ACTIONS` on its tail.
+`sw plan` / `sw settle` / `sw advance`; `state-manage.py plan --help` prints the action vocabulary
+from `ACTIONS` on its tail.
 
 Environment:
     DSH_CONDUCT_DAG_MANAGE   where `dag-manage.py` is, when it is not the sibling `dag/`
@@ -236,28 +236,30 @@ globals().update({name: getattr(_impl, name) for name in _impl.__all__})
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
-# The action vocabulary, which `state-manage.py next --help` prints on the tail of its help. Kept as
-# data so the help and the code cannot drift: the same list answers "what can `next` hand me". This
+# The action vocabulary, which `state-manage.py plan --help` prints on the tail of its help. Kept as
+# data so the help and the code cannot drift: the same list answers "what can `plan` hand me". This
 # dict is the single source of the names.
 ACTIONS = {
-    'dispatch':      'a node is pinned and the prompt has landed -- send it out (`dispatch <cycle>` '
-                     'is what does this; `next --spawn` is the same call done in one go)',
-    'open_node':     'the tool is pinning the next node itself -- what the caller reads is already '
-                     'that slot\'s dispatch',
+    'dispatch':      'a node is claimed and the prompt has landed -- send it out (`dispatch <cycle>` '
+                     'opens its session; `advance` is claim, material and session in one word)',
+    'open_node':     'the line holds no node and the ranking has one -- `hold <node>` claims it, '
+                     'then `dispatch <cycle>` opens it',
     'insert_node':   'a new node has just been put into the graph: it is created, its spec is '
                      'written and its edges are wired, and **nothing was opened** -- no session, no '
                      'prompt file, and the new node is not pinned. Which node runs next is the next '
-                     'dispatch\'s decision (`next --spawn` picks it up by the usual ranking)',
-    'stop_pipeline': 'nothing left to do / somebody called a halt / this line is not in service -- '
-                     'close out and tell the user how it ended',
+                     'step\'s decision (`advance` picks it up by the usual ranking)',
+    'stop_pipeline': 'nothing left to do / this line is not in service -- close out and tell the '
+                     'user how it ended',
     'wait':          'it is not yet time to act -- read note / close_with, never poll',
     'ask_user':      'the state is ambiguous -- ask a human',
     'no_cycle':      'there is no cycle yet -- opening one takes a human\'s intent',
+    'settle':        'one node\'s end, as `plan --after <node>` rehearses it: the step, the graph '
+                     'mark and the close-time seam -- never returned by a forward plan',
 }
 
 
 def _render_contract() -> str:
-    lines = ['the full set of actions `next` returns (the discriminant is the `action` field):']
+    lines = ['the full set of actions `plan` returns (the discriminant is the `action` field):']
     for name, what in ACTIONS.items():
         lines.append(f'  {name:<15} {what}')
     lines.append('')
@@ -267,22 +269,18 @@ def _render_contract() -> str:
 
 
 def main(argv=None) -> int:
-    """This module's own entry: parse the line, run `plan` / `apply` / `record`, print the answer.
+    """This module's own entry: parse the line, run `plan` / `settle` / `advance`, print the answer.
 
     What is here is the parse and the one call into the package. The output -- JSON or the human
     rendering, and the rule that a preview carries no commands -- is `actions.render_action`'s, the
-    same one `sw next` prints through, so the two spellings of the pipeline's front door cannot drift
+    same one `sw plan` prints through, so the two spellings of the pipeline's front door cannot drift
     apart in what they show.
 
-    The closing call's answers (`--continue` / `--stop` / `--node` / `--note`) are refused unless
-    something is being settled or previewed, exactly as `sw next` refuses them without `--after` or
-    `--plan`: with nothing being settled, there is no question for them to answer, and a quiet no-op
-    would read as if that answer had been taken. `apply` is this module's spelling of
-    `sw next --after <node>` -- the settle that reads the ticket -- so `--after` names the node it is
-    about (one line can hold several at once) and the closing answers ride with it; the reason text a
-    human reads is the same on both entries, `self_verified` and `decision_given` included. `--after`
-    is refused where nothing is settled (`plan` / `record`): the preview spelling of a closing call is
-    `plan` with the same answers.
+    Three words, three readings: `plan` reads (and `--after <node>` is the closing rehearsal),
+    `settle` writes one node's end down, `advance` claims the free slots, lands the material and
+    opens the sessions. The old op-selecting flags (`--plan`, `--after` on the writing side,
+    `--continue` / `--stop`) are gone: an option shapes how an operation runs, it never swaps the
+    operation for another one.
     """
     # Human words everywhere: reason, options and the contract are all prose. Both streams go out
     # as UTF-8, otherwise the console code page (GBK by default on this machine) writes the bytes
@@ -293,42 +291,33 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog='conduct_pipeline.py',
         description='Decide what the conduct pipeline does next (read-only planner + writer).')
-    parser.add_argument('command', choices=['plan', 'apply', 'record'])
+    parser.add_argument('command', choices=['plan', 'settle', 'advance'])
     parser.add_argument('--cycle', help='Cycle id (default: the single active cycle)')
     parser.add_argument('--project', default='.', help='Project root (default: cwd)')
-    parser.add_argument('--continue', dest='cont', action='store_true',
-                        help="the closing call's answer: keep going")
-    parser.add_argument('--stop', dest='stop', action='store_true',
-                        help="the closing call's answer: stop here (parks the cycle)")
-    parser.add_argument('--node', help="the closing call's override: which node to run next")
     parser.add_argument('--after', dest='after', default=None, metavar='NODE_ID',
-                        help='apply: settle THIS node -- how a line holding more than one node says '
-                             'which close this is')
-    parser.add_argument('--note', default='', help='why the closing call decided that')
+                        help='plan: the closing rehearsal -- this node has handed in its ticket, '
+                             'and settling it, where would the line go')
+    parser.add_argument('--node', default=None, metavar='NODE_ID',
+                        help='settle: which node is being closed (a line holding several needs to '
+                             'be told)')
     parser.add_argument('--json', action='store_true')
     args = parser.parse_args(argv)
 
-    decision = 'continue' if args.cont else 'stop' if args.stop else None
-    decision_given = bool(args.cont or args.stop)
-    if args.after and args.command != 'apply':
-        print('Error: --after names the node `apply` settles, and nothing is settled by '
-              f'`{args.command}`. Nothing was changed.', file=sys.stderr)
-        return 2
-    if (decision or args.node or args.note) and args.command != 'plan' and not args.after:
-        print("Error: --continue/--stop/--node/--note are the closing call's answers and need "
-              '`plan` (preview that call) or `apply --after <node_id>` (settle that node). '
+    if args.after and args.command != 'plan':
+        print('Error: --after is `plan`\'s closing rehearsal; the writing word is `settle --node`. '
               'Nothing was changed.', file=sys.stderr)
         return 2
+    if args.node and args.command != 'settle':
+        print('Error: --node names the node `settle` writes down, and nothing is settled by '
+              f'`{args.command}`. Nothing was changed.', file=sys.stderr)
+        return 2
     try:
-        if args.command == 'record':
-            action = record(args.project, args.cycle)
-        elif args.command == 'apply':
-            action = apply(args.project, args.cycle, decision=decision, node=args.node,
-                           note=args.note, self_verified=True, after=args.after,
-                           decision_given=decision_given)
+        if args.command == 'settle':
+            action = settle(args.project, args.cycle, args.node)
+        elif args.command == 'advance':
+            action = advance(args.project, args.cycle)
         else:
-            action = plan(args.project, args.cycle, decision=decision, node=args.node,
-                          note=args.note, decision_given=decision_given)
+            action = plan(args.project, args.cycle, after=args.after)
     except (RuntimeError, ValueError) as e:
         print(f'Error: {e}', file=sys.stderr)
         return 2

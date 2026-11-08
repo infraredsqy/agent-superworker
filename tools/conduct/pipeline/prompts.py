@@ -34,7 +34,7 @@ def started_marker(project: Path, cycle_id: str, node_id: str) -> Path:
     """The stamp a successful spawn leaves: this node's session is running.
 
     `.superworker/meta/launch/<cycle>/<node>/started` -- the stamp left behind once the prompt has been taken
-    by the session. Dispatch and `--spawn` stop handing this slot to the spawner when they see it (a
+    by the session. `dispatch` and `advance` stop handing this slot to the spawner when they see it (a
     second session on the same node cannot be collected), and planning does not count it in the
     dispatch list. Reopening that slot is `cycle retry --drop`: it wipes this stamp from the state
     side along the same path.

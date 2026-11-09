@@ -69,7 +69,7 @@ light 换的只有执行者那一步，其余一字不差：复审照派（每�
 
 ### 方法
 
-spec 里有 `method: <技能名>` 一行时，read `~/.agents/skills/<名>/SKILL.md`（你自己展开 `~`；要传给 subagent 就写绝对路径）——这个节点这一趟怎么跑，以那个技能为准。
+spec 里有 `method: <技能名>` 一行时，read `~/.zcode/skills/<名>/SKILL.md`（你自己展开 `~`；要传给 subagent 就写绝对路径）——这个节点这一趟怎么跑，以那个技能为准。
 
 - 这一行只写**技能名**。工作区的东西（spec、报告集、`.superworker/` 底下的路径）一律由工具给绝对路径，角色卡一律 `<本 skill 目录>/…`；**由名字推路径只发生在这一行**，三处不互相推算
 - **方法技能自己声明层级**：技能开头写着派 subagent 的，是指挥者方法——**你自己按它跑**，别把它塞给 Execute；写着不派的，是执行者方法，照「先看重量」那一栏办
@@ -166,7 +166,7 @@ sw instruction list --project <项目根绝对路径>
 1. `sw dag --help` 确认命令全集
 2. `sw dag info <id> --verbose` 看节点详情与直接依赖，`sw dag context <id>` 看完整上下游
 3. `sw dag open <id>` 拿 `spec.md` 路径，read；文件不存在说明该节点还没写过需求——停下来，请用户去 sw-route 写 spec，补需求不是本流程的活
-4. spec 里有 `method: <技能名>` 一行 → read `~/.agents/skills/<名>/SKILL.md`，按「方法」那一节定这个节点谁跑
+4. spec 里有 `method: <技能名>` 一行 → read `~/.zcode/skills/<名>/SKILL.md`，按「方法」那一节定这个节点谁跑
 5. 读 spec 里「参考」「上下游」两节点名的文件（那是这个节点真正的输入）
 6. 读项目 CLAUDE.md、docs/ 里与本节点相关的文档
 7. 读 `sw config get test_tier`、`sw config get worktree_mode`、`sw config get max_agents`，记进 `run.md` 的「已核事实」；这条线同时握着哪几个节点、`parallel` 是多少，在 `cycle current` 的读数里（每个节点一行 `Node:`，`Policy:` 行有 `parallel`）
@@ -444,11 +444,11 @@ $rec | ConvertTo-Json | Set-Content -Encoding utf8 .superworker/meta/FORK-<节�
 
 - 契约与设计：`docs/conduct-state.md`——`plan` 的动作全集、收尾两个入口、不变量都在里面（`holding` 是一组节点、`parallel` 是这条线的上限）
 - 装了哪些插件、各自的工具与口径：`sw doctor` 列出装了什么，每份声明自带的技能里写着它自己的工具与口径
-- 方法技能：`~/.agents/skills/<名>/SKILL.md`——spec 的 `method: ` 行点名；由名字推路径只有这一处
+- 方法技能：`~/.zcode/skills/<名>/SKILL.md`——spec 的 `method: ` 行点名；由名字推路径只有这一处
 - 派发与鉴权：`docs/conduct-dsh-dispatch.md`
 - 节点 tag 的过滤语义：`docs/conduct-node-tags.md`
 - 角色卡：`<本 skill 目录>/subagent-prompts/`（execute / review / fix / doc-sync）
-- 路径写完整绝对路径：subagent 拿不到 `~` 展开，也没有你当前的 `./`。本 skill 目录取一次（`cd ~/.agents/skills/sw-conduct/ && pwd`）
+- 路径写完整绝对路径：subagent 拿不到 `~` 展开，也没有你当前的 `./`。本 skill 目录取一次（`cd ~/.zcode/skills/sw-conduct/ && pwd`）
 
 ## 反模式
 

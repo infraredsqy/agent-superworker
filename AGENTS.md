@@ -9,7 +9,7 @@ development discipline (the dispatch path is live ammunition).
   filtering (read before changing conduct's behaviour)
 - skills/ — one skill tree per language, `skills/<lang>/`: the `sw-*` skills plus one copy of the
   `shared/superworker/` common cards each; `install.ps1 -SkillsFor zcode` picks a tree and links it
-  into `~/.agents/skills` by junction (a run without `-SkillsFor` links nothing). A skill bound to a
+  into `~/.zcode/skills` by junction (a run without `-SkillsFor` links nothing). A skill bound to a
   plugin is not here: it lives in that plugin's own folder
   (`plugins/<name>/skills/<lang>/<method>/`) and is linked too, so it is installed and removed with
   the plugin.
@@ -25,7 +25,7 @@ development discipline (the dispatch path is live ammunition).
 
 ## This checkout is the running tool
 
-- `sw` is on PATH, and on a ZCode install `~/.agents/skills` holds junctions into here: saving a
+- `sw` is on PATH, and on a ZCode install `~/.zcode/skills` holds junctions into here: saving a
   file under `tools/` or `skills/` changes what every other project's session reads, at that moment.
   Do that work in a worktree instead (`git worktree add`), run the suite there, and merge back; the
   main tree stays a version that works. A pipeline node already forks (`worktree_mode` defaults to

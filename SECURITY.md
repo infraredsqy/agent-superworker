@@ -18,7 +18,7 @@ Please do not open a public issue for anything exploitable.
 - `tools/bin`, `tools/dag`, `tools/conduct`, `tools/shared` -- the `sw` command and what it runs
 - `tools/conduct/spawn/` -- the spawners: they open sessions through the local DSH API on a cookie,
   and a session spends real tokens
-- `install.ps1` -- it links skills into a host's root (`~/.agents/skills` for `-SkillsFor zcode`)
+- `install.ps1` -- it links skills into a host's root (`~/.zcode/skills` for `-SkillsFor zcode`)
   and puts `tools/bin` on `PATH`
 - `skills/` -- the method text a session works under
 - `plugins/` -- a plugin's own tools and skills

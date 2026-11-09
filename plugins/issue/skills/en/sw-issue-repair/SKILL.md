@@ -63,7 +63,7 @@ second time here. This flow adds three things only:
   a whole batch. The same verification covers the changes inside a batch. Each batch's Fix plus
   Review is 2 in flight, so before dispatching several batches together, count once against
   [`../shared/superworker/subagents.md`](../shared/superworker/subagents.md)
-- **Fix → Review per batch**: Fix uses `~/.agents/skills/sw-conduct/subagent-prompts/fix.md`, and
+- **Fix → Review per batch**: Fix uses `~/.zcode/skills/sw-conduct/subagent-prompts/fix.md`, and
   Review the `review.md` in the same directory (read-only); the prompt follows sw-conduct's "Fix"
   section
 - **Commit once a batch passes**: only when the whole batch reviews with no issue is it committed.

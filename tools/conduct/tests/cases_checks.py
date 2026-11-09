@@ -264,7 +264,7 @@ class TestTheValidator(Base):
 
     def test_two_plugins_may_not_ship_one_skill(self):
         """The other face of the same rule: both folders carrying the name is a loan too, and it is
-        what would make `~/.agents/skills/<name>` ambiguous. The sentence names both folders.
+        what would make `~/.zcode/skills/<name>` ambiguous. The sentence names both folders.
         """
         root = self.plugins()
         method = CARDED

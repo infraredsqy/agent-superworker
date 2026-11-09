@@ -1,13 +1,13 @@
 """`install.ps1`: the one door every user runs, exercised against a fake checkout.
 
-The script links two kinds of skill into `~/.agents/skills` -- the core's own `skills/<lang>/sw-*`
+The script links two kinds of skill into `~/.zcode/skills` -- the core's own `skills/<lang>/sw-*`
 and the ones a plugin ships in its own folder -- puts `sw` on PATH, and finishes with a self-check.
 Nothing else in this tree tests it, so a regression here is one a user meets before any test does.
 
 Each case builds a throwaway checkout in a temp dir (its own `skills/`, its own `plugins/`, a stub
 `sw.cmd` where the self-check's `sw doctor` would run, and a fake home), runs a copy of the real
 script with `$HOME` rewritten to that temp home and `-SkipPath`, and looks at the junctions it made.
-The real `~/.agents/skills` and the real PATH are never touched, and the script's own `sw doctor`
+The real `~/.zcode/skills` and the real PATH are never touched, and the script's own `sw doctor`
 half is a stub: what is under test is the linking, which is the half nothing else covers.
 
     python conduct/tests/cases_install.py            # this file on its own
@@ -73,8 +73,8 @@ class TestTheInstaller(unittest.TestCase):
         self.root = Path(tmp.name)
         self.checkout = self.root / 'checkout'
         self.home = self.root / 'home'
-        (self.home / '.agents' / 'skills').mkdir(parents=True)
-        self.skills = self.home / '.agents' / 'skills'
+        (self.home / '.zcode' / 'skills').mkdir(parents=True)
+        self.skills = self.home / '.zcode' / 'skills'
         # the core's own skills: the two the script would link on any install
         for name in ('sw-conduct', 'sw-route'):
             _new(self.checkout / 'skills' / 'en' / name / 'SKILL.md', f'# {name}\n')

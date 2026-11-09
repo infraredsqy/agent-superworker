@@ -116,7 +116,7 @@ LAYERS = ('node', 'cycle', 'project', 'global')
 #: of the language the chosen one lacks and says which language it borrowed, so a skill in another
 #: language still reads. The skill moves with the folder -- removing a plugin removes the skill, which
 #: is what "installed and removed with it" means for a skill. The install is what turns one of those
-#: folders into the `~/.agents/skills/<method>` path a session reads; nothing here depends on that
+#: folders into the `~/.zcode/skills/<method>` path a session reads; nothing here depends on that
 #: layout.
 SKILLS = 'skills'
 SKILL_FILE = 'SKILL.md'
@@ -686,7 +686,7 @@ def _skill_problems(plugins: list) -> list:
       lands on another plugin's skill is a loan, and a skill does not move between plugins: the two
       would be one plugin;
     * a skill name belongs to one plugin. Shipping the same name from two plugin folders is the same
-      loan seen from the other side, and it is what makes `~/.agents/skills/<name>` ambiguous.
+      loan seen from the other side, and it is what makes `~/.zcode/skills/<name>` ambiguous.
 
     A skill no declaration names is not a problem either way: it is a skill the user invokes, and
     `sw doctor` lists it with the plugin that carries it.

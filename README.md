@@ -29,9 +29,11 @@ pwsh -File install.ps1 -SkillsFor none    # no skill links; -SkillsFor zcode lin
 ```
 
 The script has no default host, because a skill root belongs to one: `-SkillsFor zcode` links the
-`sw-*` skills into `~/.agents/skills` (what ZCode reads), `-SkillsFor none` only puts `tools/bin` on
+`sw-*` skills into `~/.zcode/skills`, ZCode's own root, `-SkillsFor none` only puts `tools/bin` on
 your `PATH`. `-SkillsFor dsh` is refused on purpose — the DSH plugin installs its own skills, in
-DSH's shape, into `~/.dsh/skills`. Both hosts' installs drop any other checkout's `PATH` entry, so
+DSH's shape, into `~/.dsh/skills`. The two roots are disjoint: ZCode scans `~/.zcode/skills` first and
+the compatibility `~/.agents/skills` after it, and this script writes only the first one, so a
+same-named skill never has two homes. Both hosts' installs drop any other checkout's `PATH` entry, so
 `sw` resolves here; re-run the script after moving the checkout, it is idempotent, and its closing
 self-check includes `sw doctor`. `-Check` prints every link, `PATH` and record change it would make
 and writes nothing.
@@ -70,7 +72,7 @@ person runs to move a line on.
 
 ## Skills
 
-Worker sessions are skills, linked into `~/.agents/skills`:
+Worker sessions are skills, linked into `~/.zcode/skills`:
 
 | Skill | What it does |
 |---|---|
@@ -91,8 +93,10 @@ driver, so a project's records can be read and written from either side. The flo
 both sides — `plan` reads, `hold` claims, `settle` records one node's end, `advance` claims the
 free slots and opens the sessions, `dispatch` only opens — while each side keeps its own route for
 what opens a session (this command hands that to a spawner script; DSH's host opens it itself). The
-skill trees are separate too: the plugin writes DSH's into `~/.dsh/skills`, and `skills/` here holds
-the command-line ones.
+skill trees are separate too: the plugin writes DSH's into `~/.dsh/skills`, and the links this script
+makes go to `~/.zcode/skills`. Neither host scans the other's root, so a machine carrying both reads
+each implementation's skills in the shape that host can run — and neither root ever needs the other's
+files to make sense.
 
 ## Development
 

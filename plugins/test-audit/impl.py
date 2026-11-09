@@ -280,7 +280,7 @@ def spec(hit: dict, spec_path: str) -> str:
         '\n'
         '## How to do it\n'
         '\n'
-        f'- `method: {hit["method"]}` (how to run it: `~/.agents/skills/{hit["method"]}/SKILL.md`; '
+        f'- `method: {hit["method"]}` (how to run it: `~/.zcode/skills/{hit["method"]}/SKILL.md`; '
         'that skill declares who runs it, and this spec only points at it)\n'
         '\n'
         '## Completion rule (mechanically judgeable)\n'

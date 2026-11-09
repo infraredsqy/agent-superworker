@@ -1,21 +1,25 @@
 ﻿# agent-superworker (sw) install: link the skills into one host's root, put `sw` on PATH, self-check.
 #
-#   pwsh -File install.ps1 -SkillsFor zcode             link the skills into ~/.agents/skills (what ZCode reads)
+#   pwsh -File install.ps1 -SkillsFor zcode             link the skills into ~/.zcode/skills (ZCode's own root)
 #   pwsh -File install.ps1 -SkillsFor none              no links at all: PATH and the language record only
 #   pwsh -File install.ps1 -SkillsFor zcode -Lang zh    install the Chinese skills (the default is en)
 #   pwsh -File install.ps1 -SkillsFor zcode -Check      print every link, PATH and record change, write nothing
-#   pwsh -File install.ps1 -SkillsFor zcode -TakeShared take over ~/.agents/skills/shared (a link elsewhere)
+#   pwsh -File install.ps1 -SkillsFor zcode -TakeShared take over ~/.zcode/skills/shared (a link elsewhere)
 #   pwsh -File install.ps1 -SkillsFor zcode -Uninstall  remove what this checkout linked in
 #
 # `-SkillsFor` has no default, because a skill root belongs to a host and this script may not guess which
 # one you meant: without it the three choices are printed and nothing is touched. `-SkillsFor dsh` is
 # refused -- the DSH plugin installs its own skills, in DSH's shape, into `~/.dsh/skills`; the skills
-# in this checkout are the command-line ones and read as wrong there. `-SkillsFor zcode` links into
-# `~/.agents/skills`: that is the root ZCode reads, and DSH also scans it, at a rank below its own
-# (see the line this script prints when it finds DSH on the machine).
+# in this checkout are the command-line ones and read as wrong there.
+#
+# `-SkillsFor zcode` links into `~/.zcode/skills`, ZCode's own root. ZCode scans that root first and the
+# compatibility root (`~/.agents/skills`) after it; this script writes only the first one, because a skill
+# name has one home and the compatibility root belongs to whatever else put links there. The two hosts'
+# roots are disjoint -- neither scans the other's -- so a machine carrying both implementations reads
+# each one's skills in the shape that host can actually run.
 #
 # The skills come in one language per install: what gets linked is `skills\<lang>\sw-*`, because a
-# method name has exactly one skill (`~/.agents/skills/<method>/SKILL.md`). A skill a plugin ships is
+# method name has exactly one skill (`~/.zcode/skills/<method>/SKILL.md`). A skill a plugin ships is
 # not in the core's skills tree: it lives in the plugin's own folder
 # (`plugins\<name>\skills\<lang>\<method>`) and is linked from there, so removing the plugin folder
 # takes its skills with it. A method the chosen language has no skill for is borrowed from another
@@ -35,7 +39,7 @@
 # recorded entry is swapped out.
 #
 # The skill root is never a project's: a project's `.agents/skills` is the project's own to commit,
-# and this script only writes the host roots above.
+# and this script only writes the host root above (`~\.zcode\skills`).
 
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -55,14 +59,11 @@ $swPy = Join-Path $binDir 'sw.py'
 $skillsDir = Join-Path $repo 'skills'
 # What a fresh install gets when neither -Lang nor the record says.
 $defaultLang = 'en'
-$skillsRoot = Join-Path $HOME '.agents\skills'
+$skillsRoot = Join-Path $HOME '.zcode\skills'
 $sharedRoot = Join-Path $skillsRoot 'shared'
 $sharedSw = Join-Path $sharedRoot 'superworker'
 $markerFile = Join-Path $HOME '.superworker\install.txt'
 $langFile = Join-Path $HOME '.superworker\lang.txt'
-# The DSH side's installed skill set: the plugin maintains it, and this script only reads it to say
-# what sits above the root it links into.
-$dshManifest = Join-Path $HOME '.dsh\superworker\skills.json'
 
 function Say([string]$what, [string]$detail = '') { Write-Host ("  {0,-16}{1}" -f $what, $detail) }
 
@@ -112,7 +113,7 @@ function New-Junction([string]$link, [string]$target) {
 # ── 0. which host's skill root ───────────────────────────────────────────────
 if (-not $SkillsFor) {
     Write-Host 'Name the host whose skill root this install links into:'
-    Write-Host '  -SkillsFor zcode    link into ~\.agents\skills (what ZCode reads)'
+    Write-Host '  -SkillsFor zcode    link into ~\.zcode\skills (ZCode''s own root)'
     Write-Host '  -SkillsFor none     no links: PATH and the language record only'
     Write-Host '  -SkillsFor dsh      not this script''s: the DSH plugin installs those skills itself'
     Write-Host ''
@@ -229,20 +230,6 @@ if (-not $Uninstall) {
     }
 }
 
-if ($linkSkills -and -not $Uninstall -and (Test-Path -LiteralPath $dshManifest)) {
-    # Two implementations of one record layer, two skill sets: the plugin's lives in `~/.dsh/skills`
-    # (rank 400) and this one goes into the shared root (500), so a same-named skill reads the DSH
-    # copy. Saying so is what keeps a person from editing the wrong file.
-    try {
-        $manifest = Get-Content -LiteralPath $dshManifest -Raw -Encoding UTF8 | ConvertFrom-Json
-        $dshNames = @($manifest.skills | ForEach-Object { [string]$_.name })
-        Say 'note' ("DSH ships " + $dshNames.Count + " skills of its own in " + $manifest.root +
-            " (by plugin; rank 400, above this root's 500)")
-    } catch {
-        Say 'warning' "could not read $dshManifest -- DSH's own skill set was not compared"
-    }
-}
-
 # ── 1. skill junctions ────────────────────────────────────────────────────────
 foreach ($skill in $skills) {
     $link = Join-Path $skillsRoot $skill.Name
@@ -259,7 +246,7 @@ if ($linkSkills -and -not $Uninstall) {
 
 # ── 2. plugin skills: a skill a plugin ships lives in the plugin's own folder ──
 # `<plugin>/skills/<lang>/<method>` is where a method's skill is; this step is what turns one of those
-# folders into the `~/.agents/skills/<method>` path a session reads. The install's language is the
+# folders into the `~/.zcode/skills/<method>` path a session reads. The install's language is the
 # first pick, and a method it has no folder for is taken from another language's folder -- a skill in
 # the wrong language is readable, a link that is not there is not -- with one line saying which
 # language it came from. A method no language ships at all is said missing for the same reason: the

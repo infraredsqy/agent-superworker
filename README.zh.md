@@ -21,10 +21,10 @@
 ```pwsh
 git clone https://github.com/infraredsqy/agent-superworker/
 cd agent-superworker
-pwsh -File install.ps1 -SkillsFor none    # 不建技能链接；-SkillsFor zcode 才链进 ~/.agents/skills
+pwsh -File install.ps1 -SkillsFor none    # 不建技能链接；-SkillsFor zcode 才链进 ~/.zcode/skills
 ```
 
-脚本没有缺省宿主，因为技能根归某一家：`-SkillsFor zcode` 把 `sw-*` 技能链进 `~/.agents/skills`（ZCode 读的那一处），`-SkillsFor none` 只把 `tools/bin` 加入 `PATH`。`-SkillsFor dsh` 是有意拒绝的——DSH 那边由插件把 DSH 形状的技能装进 `~/.dsh/skills`。两种装法都会摘掉其它 checkout 的 `PATH` 条目，所以 `sw` 只解析到本仓库；仓库位置变更后重新执行即可，脚本具备幂等性，收尾自检里包含一次 `sw doctor`。`-Check` 把将要建的链接、`PATH` 与记录逐条打印出来，一个字节都不写。
+脚本没有缺省宿主，因为技能根归某一家：`-SkillsFor zcode` 把 `sw-*` 技能链进 `~/.zcode/skills`（ZCode 自己的根），`-SkillsFor none` 只把 `tools/bin` 加入 `PATH`。`-SkillsFor dsh` 是有意拒绝的——DSH 那边由插件把 DSH 形状的技能装进 `~/.dsh/skills`。两个根互不相交：ZCode 先扫 `~/.zcode/skills`，再扫兼容根 `~/.agents/skills`，本脚本只写前一个，所以同名技能永远只有一个家。两种装法都会摘掉其它 checkout 的 `PATH` 条目，所以 `sw` 只解析到本仓库；仓库位置变更后重新执行即可，脚本具备幂等性，收尾自检里包含一次 `sw doctor`。`-Check` 把将要建的链接、`PATH` 与记录逐条打印出来，一个字节都不写。
 
 技能分英文与中文两套，一次只装一套（一个方法名只有一份技能）：缺省装英文，`-Lang zh` 装中文那一套。选择记在 `~/.superworker/lang.txt`，之后重跑修复不会把语言换掉。
 
@@ -57,7 +57,7 @@ sw advance
 
 ## 技能
 
-执行会话由以下技能驱动，均链接至 `~/.agents/skills`：
+执行会话由以下技能驱动，均链接至 `~/.zcode/skills`：
 
 | 技能 | 职责 |
 |---|---|

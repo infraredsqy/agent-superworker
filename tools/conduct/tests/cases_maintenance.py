@@ -588,7 +588,7 @@ class ChannelCases:
         # how: name which method skill owns this kind of debt -- the declaration's own method
         self.assertIn('How to do it', spec)
         self.assertIn(f'method: {self.DEBT.method}', spec)
-        self.assertIn(f'~/.agents/skills/{self.DEBT.method}/SKILL.md', spec)
+        self.assertIn(f'~/.zcode/skills/{self.DEBT.method}/SKILL.md', spec)
         # completion rule: pull it back under the line, and give a command that can be run
         self.assertIn('Completion rule (mechanically judgeable)', spec)
         self.assertIn('**below**', spec)
